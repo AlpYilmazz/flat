@@ -1,0 +1,9 @@
+1.  .cargo/config.toml link configurations were unsuccessful
+
+2.  C:/dev/vendor/freetype/binaries/x86_64
+    contents have been copied to
+    C:\Users\alper\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\x86_64-pc-windows-msvc\lib
+
+
+
+
