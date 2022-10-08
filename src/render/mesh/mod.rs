@@ -4,7 +4,7 @@ use wgpu::util::DeviceExt;
 
 use super::{
     resource::buffer::{FromRawVertex, Indices, MeshVertex},
-    system::{RenderEntity, RenderAsset},
+    system::{RenderAsset, RenderEntity},
 };
 
 pub mod primitive;
@@ -33,7 +33,7 @@ impl<V: MeshVertex> Mesh<V> {
         }
     }
 
-    pub fn with_all(
+    pub fn new_with(
         primitive_topology: wgpu::PrimitiveTopology,
         vertices: Vec<V>,
         indices: Option<Indices>,
@@ -93,7 +93,7 @@ impl<V: MeshVertex> Mesh<V> {
                 //     &model.mesh.vertex_color
                 // );
 
-                Self::with_all(
+                Self::new_with(
                     wgpu::PrimitiveTopology::TriangleList,
                     vertices,
                     Some(Indices::U32(model.mesh.indices)),
@@ -276,17 +276,17 @@ impl GpuMesh {
 }
 
 impl<V: MeshVertex> RenderAsset for Mesh<V> {
-    type GpuAsset = GpuMesh;
+    type GpuEntity = GpuMesh;
 
-    fn extract(&self, device: &wgpu::Device) -> Self::GpuAsset {
+    fn extract(&self, device: &wgpu::Device) -> Self::GpuEntity {
         GpuMesh::from_mesh(&device, self)
     }
 }
 
 impl<V: MeshVertex> RenderAsset for BatchMesh<V> {
-    type GpuAsset = GpuMesh;
+    type GpuEntity = GpuMesh;
 
-    fn extract(&self, device: &wgpu::Device) -> Self::GpuAsset {
+    fn extract(&self, device: &wgpu::Device) -> Self::GpuEntity {
         GpuMesh::from_mesh(&device, self)
     }
 }

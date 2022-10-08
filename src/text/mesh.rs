@@ -46,5 +46,5 @@ pub fn create_screen_text_mesh(atlas: &TextAtlas, src: &str, coord: (f32, f32)) 
         x += (desc.advance >> 6) as f32;
     }
 
-    Mesh::with_all(wgpu::PrimitiveTopology::TriangleList, vertices, None)
+    Mesh::new_with(wgpu::PrimitiveTopology::TriangleList, vertices, None)
 }

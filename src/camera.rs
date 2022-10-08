@@ -2,7 +2,7 @@ use bytemuck::{Pod, Zeroable};
 use cgmath::*;
 use repr_trait::C;
 
-use crate::render::resource::bind::{GpuUniform, StageLockedUniform, UpdateGpuUniform};
+use crate::render::resource::uniform::{GpuUniform, StageLockedUniform, UpdateGpuUniform};
 
 pub struct Camera {
     pub view_matrix: Matrix4<f32>,

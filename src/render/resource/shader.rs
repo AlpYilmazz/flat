@@ -34,14 +34,14 @@ impl Shader {
     pub const VERTEX_ENTRY_POINT: &'static str = "vs_main";
     pub const FRAGMENT_ENTRY_POINT: &'static str = "fs_main";
 
-    pub fn with(module: wgpu::ShaderModule) -> Self {
+    pub fn from(module: wgpu::ShaderModule) -> Self {
         Self {
             module,
             targets: Default::default(),
         }
     }
 
-    pub fn with_final(
+    pub fn from_with(
         module: wgpu::ShaderModule,
         vertex_buffers: Vec<wgpu::VertexBufferLayout<'static>>, // TODO: lifetime
         fragment_targets: Vec<Option<wgpu::ColorTargetState>>,
@@ -84,7 +84,7 @@ impl ShaderSource {
             label: None,
             source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Owned(self.0)),
         });
-        Shader::with(module)
+        Shader::from(module)
     }
 
     pub fn compile_with_targets(self, device: &wgpu::Device, targets: ShaderTargets) -> Shader {

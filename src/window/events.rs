@@ -1,8 +1,6 @@
-use cgmath::Vector2;
 use winit::dpi::PhysicalSize;
 
-use super::{WindowId, WindowDescriptor};
-
+use super::{WindowDescriptor, WindowId};
 
 pub struct CreateWindow {
     pub id: WindowId,

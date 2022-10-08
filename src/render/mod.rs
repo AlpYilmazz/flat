@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use bevy_app::{CoreStage, Plugin};
-use bevy_asset::{AddAsset, Assets, HandleId};
+use bevy_asset::{AddAsset, Assets, Handle, HandleId};
 use bevy_ecs::{
-    prelude::{Component, EventReader},
+    prelude::{Bundle, Component, EventReader},
     schedule::{StageLabel, SystemStage},
     system::{Commands, Local, Query, Res, ResMut},
     world::World,
@@ -24,15 +24,16 @@ use crate::{
 use self::{
     mesh::{GpuMesh, Mesh},
     resource::{
-        bind::{BindingSet, UniformBuffer, UpdateGpuUniform},
+        bind::BindingSet,
         shader::{ShaderSource, ShaderSourceLoader, Shaders},
     },
     resource::{
         buffer::{MeshVertex, Vertex},
         pipeline::RenderPipeline,
         shader::Shader,
+        uniform::{Uniform, UniformBuffer, UpdateGpuUniform},
     },
-    system::AddRenderSystem,
+    system::{AddRenderSystem, RenderAsset},
 };
 
 pub mod mesh;
@@ -42,6 +43,7 @@ pub mod system;
 
 #[derive(StageLabel)]
 pub enum RenderStage {
+    Prepare,
     Extract,
     Render,
 }
@@ -51,6 +53,11 @@ impl Plugin for FlatRenderPlugin {
     fn build(&self, app: &mut bevy_app::App) {
         app.add_stage_after(
             CoreStage::Last,
+            RenderStage::Prepare,
+            SystemStage::parallel(),
+        )
+        .add_stage_after(
+            RenderStage::Prepare,
             RenderStage::Extract,
             SystemStage::parallel(),
         )
@@ -69,7 +76,7 @@ impl Plugin for FlatRenderPlugin {
         .add_asset::<ShaderSource>()
         .add_system_to_stage(CoreStage::PreUpdate, create_surface_system)
         .add_system_to_stage(CoreStage::Update, create_render_entity_test)
-        .add_system_to_stage(RenderStage::Extract, reconfigure_surface_system)
+        .add_system_to_stage(RenderStage::Prepare, reconfigure_surface_system)
         .add_render_system::<Mesh<Vertex>>();
         // .add_system_to_stage(RenderStage::Render, render_system);
 
@@ -77,13 +84,6 @@ impl Plugin for FlatRenderPlugin {
         // create_render_entity_test(&mut app.world);
     }
 }
-
-// pub struct RenderAsset {
-//     pipeline: wgpu::RenderPipeline,
-//     bind_groups: Vec<wgpu::BindGroup>,
-//     mesh: GpuMesh,
-//     instance_data: wgpu::Buffer,
-// }
 
 #[derive(Component)]
 pub struct InstanceData(wgpu::Buffer, u32);
@@ -97,6 +97,13 @@ pub struct SurfaceKit {
 
 #[derive(Default)]
 pub struct Surfaces(pub HashMap<WindowId, SurfaceKit>);
+
+#[derive(Bundle)]
+pub struct RenderEntityBundle<T: RenderAsset> {
+    pub pipeline: Refer<RenderPipeline>,
+    pub bind_groups: ReferMany<wgpu::BindGroup>,
+    pub render_asset: Handle<T>,
+}
 
 pub fn create_wgpu_resources(world: &mut World) {
     let winit_windows = world.get_resource::<WinitWindows>().unwrap();
@@ -138,7 +145,7 @@ fn create_render_entity_test(
     mut pipelines: ResMut<Store<RenderPipeline>>,
     mut bind_groups: ResMut<Store<wgpu::BindGroup>>,
     mut cameras: ResMut<Store<(Camera, CameraView, PerspectiveProjection)>>,
-    mut camera_uniforms: ResMut<Store<UniformBuffer<CameraUniform>>>,
+    mut camera_uniforms: ResMut<Store<Uniform<Camera>>>,
     mut meshes: ResMut<Assets<Mesh<Vertex>>>,
     mut commands: Commands,
 ) {
@@ -154,15 +161,15 @@ fn create_render_entity_test(
     let perspective_projection = PerspectiveProjection::default();
     camera.view_matrix = camera_view.build_view_matrix();
     camera.projection_matrix = perspective_projection.build_projection_matrix();
-    let mut camera_uniform = CameraUniform::default();
-    camera.update_uniform(&mut camera_uniform);
-    let camera_uniform = UniformBuffer::new_init(&device, camera_uniform);
-    let camera_bind = (&camera_uniform).into_bind_group(&device);
+
+    let camera_uniform: Uniform<Camera> = Uniform::new(&device, camera.generate_uniform());
+
+    let camera_bind = camera_uniform.as_ref().into_bind_group(&device);
 
     let pipeline = RenderPipeline::create_usual(
         &device,
         &[&camera_uniform.as_ref().bind_group_layout(&device)],
-        &Shader::with_final(
+        &Shader::from_with(
             device.create_shader_module(include_wgsl!("../../res/test.wgsl")),
             vec![Vertex::layout()],
             vec![Some(wgpu::ColorTargetState {
@@ -184,11 +191,11 @@ fn create_render_entity_test(
     let refer_binds = store_many(&mut bind_groups, vec![camera_bind]);
     let handle_cube_mesh = meshes.set(HandleId::random::<Mesh<Vertex>>(), cube_mesh);
 
-    commands
-        .spawn()
-        .insert(refer_pipeline)
-        .insert(refer_binds)
-        .insert(handle_cube_mesh);
+    commands.spawn_bundle(RenderEntityBundle {
+        pipeline: refer_pipeline,
+        bind_groups: refer_binds,
+        render_asset: handle_cube_mesh,
+    });
 }
 
 fn reconfigure_camera_aspect(

@@ -1,6 +1,5 @@
 use bevy_app::AppExit;
 use bevy_ecs::{event::ManualEventReader, prelude::Events, world::World};
-use cgmath::Vector2;
 use winit::{
     event::{DeviceEvent, Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop, EventLoopWindowTarget},

@@ -21,7 +21,7 @@ pub trait AddRenderSystem {
 impl AddRenderSystem for App {
     fn add_render_system<T: RenderAsset>(&mut self) {
         self.add_asset::<T>()
-            .init_resource::<RenderAssets<T::GpuAsset>>()
+            .init_resource::<RenderAssets<T::GpuEntity>>()
             .add_system_to_stage(RenderStage::Extract, extract_render_asset::<T>)
             .add_system_to_stage(RenderStage::Render, render_system::<T>);
     }
@@ -36,9 +36,9 @@ pub trait RenderEntity: Send + Sync + 'static {
 }
 
 pub trait RenderAsset: Asset {
-    type GpuAsset: RenderEntity;
+    type GpuEntity: RenderEntity;
 
-    fn extract(&self, device: &wgpu::Device) -> Self::GpuAsset;
+    fn extract(&self, device: &wgpu::Device) -> Self::GpuEntity;
 }
 
 pub struct RenderAssets<T: RenderEntity>(pub AssetStore<T>);
@@ -51,7 +51,7 @@ impl<T: RenderEntity> Default for RenderAssets<T> {
 
 pub fn extract_render_asset<T: RenderAsset>(
     device: Res<wgpu::Device>,
-    mut render_assets: ResMut<RenderAssets<T::GpuAsset>>,
+    mut render_assets: ResMut<RenderAssets<T::GpuEntity>>,
     assets: Res<Assets<T>>,
     mut asset_events: EventReader<AssetEvent<T>>,
 ) {
@@ -77,7 +77,7 @@ pub fn render_system<T: RenderAsset>(
     depth_texture: Option<Res<DepthTexture>>,
     pipelines: Res<Store<RenderPipeline>>,
     bind_groups: Res<Store<wgpu::BindGroup>>,
-    render_assets: Res<RenderAssets<T::GpuAsset>>,
+    render_assets: Res<RenderAssets<T::GpuEntity>>,
     render_entities: Query<(
         &Refer<RenderPipeline>,
         &ReferMany<wgpu::BindGroup>,

@@ -116,7 +116,7 @@ pub fn create_unit_cube() -> Mesh<Vertex> {
         }
     }
 
-    Mesh::with_all(
+    Mesh::new_with(
         wgpu::PrimitiveTopology::TriangleList,
         VERTICES_Z_TOWARDS.to_owned(),
         Some(Indices::U16(indices)),
@@ -177,7 +177,7 @@ pub fn create_aa_plane(
         }
     }
 
-    Mesh::with_all(
+    Mesh::new_with(
         wgpu::PrimitiveTopology::TriangleList,
         vertices,
         Some(Indices::U32(indices)),
