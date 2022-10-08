@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 wgpu = "0.13"
 winit = "0.26"
+raw-window-handle = "0.4.2"
 bytemuck = { version = "1.4", features = [ "derive" ] }
 cgmath = { version = "0.18.0", features = [ "swizzle" ] }
 

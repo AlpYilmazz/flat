@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use bevy_app::{CoreStage, Plugin};
 use bevy_ecs::system::IntoExclusiveSystem;
+use ::raw_window_handle::{RawWindowHandle, HasRawWindowHandle};
 use winit::{
     event_loop::{EventLoop, EventLoopWindowTarget},
     window::WindowBuilder,
@@ -9,13 +10,14 @@ use winit::{
 
 use self::{
     commands::WindowCommands,
-    events::{CreateWindow, CursorEntered, CursorLeft, FocusChanged, RequestRedraw, WindowCreated},
-    runner::{execute_window_commands, handle_create_window, winit_event_loop_runner},
+    events::{CreateWindow, CursorEntered, CursorLeft, FocusChanged, RequestRedraw, WindowCreated, WindowResized},
+    runner::{execute_window_commands, handle_create_window, winit_event_loop_runner}, raw_window_handle::RawWindowHandleWrapper,
 };
 
 pub mod commands;
 pub mod events;
 pub mod runner;
+pub mod raw_window_handle;
 pub mod util;
 
 pub struct FlatWinitPlugin {
@@ -66,6 +68,7 @@ impl Plugin for FlatWindowPlugin {
         app.init_resource::<Windows>()
             .add_event::<CreateWindow>()
             .add_event::<WindowCreated>()
+            .add_event::<WindowResized>()
             .add_event::<RequestRedraw>()
             .add_event::<FocusChanged>()
             .add_event::<CursorEntered>()
@@ -75,7 +78,7 @@ impl Plugin for FlatWindowPlugin {
 
 #[derive(Default)]
 pub struct WinitWindows {
-    map: HashMap<WindowId, winit::window::Window>,
+    pub map: HashMap<WindowId, winit::window::Window>,
     winit_to_lib: HashMap<winit::window::WindowId, WindowId>,
     lib_to_winit: HashMap<WindowId, winit::window::WindowId>,
 }
@@ -94,12 +97,15 @@ impl WinitWindows {
         //
 
         let winit_window = builder.build(event_loop).expect("Window build failed");
+        // winit_window.request_redraw();
+
+        let raw_window_handle = winit_window.raw_window_handle();
 
         self.winit_to_lib.insert(winit_window.id(), id);
         self.lib_to_winit.insert(id, winit_window.id());
         self.map.insert(id, winit_window);
 
-        Window::new(id, desc)
+        Window::new(id, desc, raw_window_handle)
     }
 }
 
@@ -151,14 +157,16 @@ impl WindowId {
 pub struct Window {
     pub id: WindowId,
     pub desc: WindowDescriptor,
+    pub raw_window_handle: RawWindowHandleWrapper,
     command_queue: Vec<WindowCommands>,
 }
 
 impl Window {
-    pub fn new(id: WindowId, desc: WindowDescriptor) -> Self {
+    pub fn new(id: WindowId, desc: WindowDescriptor, raw_window_handle: RawWindowHandle) -> Self {
         Self {
             id,
             desc,
+            raw_window_handle: RawWindowHandleWrapper::new(raw_window_handle),
             command_queue: Vec::new(),
         }
     }

@@ -1,7 +1,11 @@
 use bevy_ecs::prelude::Component;
+use bevy_reflect::TypeUuid;
 use wgpu::util::DeviceExt;
 
-use super::resource::buffer::{FromRawVertex, Indices, MeshVertex};
+use super::{
+    resource::buffer::{FromRawVertex, Indices, MeshVertex},
+    system::{RenderEntity, RenderAsset},
+};
 
 pub mod primitive;
 pub mod util;
@@ -10,6 +14,8 @@ pub struct Model<V: MeshVertex> {
     pub meshes: Vec<Mesh<V>>,
 }
 
+#[derive(TypeUuid)]
+#[uuid = "8628FE7C-A4E9-4056-91BD-FD6AA7817E39"]
 pub struct Mesh<V: MeshVertex> {
     primitive_topology: wgpu::PrimitiveTopology,
     vertices: Vec<V>,
@@ -155,6 +161,8 @@ impl<V: MeshVertex> Mesh<V> {
     }
 }
 
+#[derive(TypeUuid)]
+#[uuid = "ED280816-E404-444A-A2D9-FFD2D171F928"]
 pub struct BatchMesh<V: MeshVertex> {
     indexed: bool,
     inner_mesh: Mesh<V>,
@@ -235,7 +243,7 @@ pub struct GpuMesh {
 }
 
 impl GpuMesh {
-    pub fn from_mesh<'a, V, M>(mesh: M, device: &wgpu::Device) -> GpuMesh
+    pub fn from_mesh<'a, V, M>(device: &wgpu::Device, mesh: M) -> GpuMesh
     where
         V: MeshVertex,
         M: Into<&'a Mesh<V>>,
@@ -263,6 +271,51 @@ impl GpuMesh {
                 },
             },
             primitive_topology: mesh.get_primitive_topology(),
+        }
+    }
+}
+
+impl<V: MeshVertex> RenderAsset for Mesh<V> {
+    type GpuAsset = GpuMesh;
+
+    fn extract(&self, device: &wgpu::Device) -> Self::GpuAsset {
+        GpuMesh::from_mesh(&device, self)
+    }
+}
+
+impl<V: MeshVertex> RenderAsset for BatchMesh<V> {
+    type GpuAsset = GpuMesh;
+
+    fn extract(&self, device: &wgpu::Device) -> Self::GpuAsset {
+        GpuMesh::from_mesh(&device, self)
+    }
+}
+
+impl RenderEntity for GpuMesh {
+    fn set_buffers<'a>(
+        &'a self,
+        render_pass: &mut wgpu::RenderPass<'a>,
+        instance_data: Option<&'a super::InstanceData>,
+    ) {
+        let mut instance_count = 1;
+        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+        if let Some(instance_data) = instance_data {
+            render_pass.set_vertex_buffer(1, instance_data.0.slice(..));
+            instance_count = instance_data.1;
+        }
+
+        match &self.assembly {
+            GpuMeshAssembly::Indexed {
+                index_buffer,
+                index_count,
+                index_format,
+            } => {
+                render_pass.set_index_buffer(index_buffer.slice(..), *index_format);
+                render_pass.draw_indexed(0..*index_count as u32, 0, 0..instance_count);
+            }
+            GpuMeshAssembly::NonIndexed { vertex_count } => {
+                render_pass.draw(0..*vertex_count as u32, 0..instance_count);
+            }
         }
     }
 }

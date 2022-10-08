@@ -12,7 +12,8 @@ impl UpdateGpuUniform for Camera {
     type GU = CameraUniform;
 
     fn update_uniform(&self, gpu_uniform: &mut Self::GU) {
-        gpu_uniform.view_proj = (self.projection_matrix * self.view_matrix).into();
+        gpu_uniform.view_proj =
+            (OPENGL_TO_WGPU_MATRIX * self.projection_matrix * self.view_matrix).into();
     }
 }
 impl Default for Camera {

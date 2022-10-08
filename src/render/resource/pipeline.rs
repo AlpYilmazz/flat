@@ -8,6 +8,7 @@ impl RenderPipeline {
         bind_group_layouts: &[&wgpu::BindGroupLayout],
         shader: &shader::Shader,
         primitive_topology: wgpu::PrimitiveTopology,
+        depth_stencil: bool,
     ) -> Self {
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -41,13 +42,18 @@ impl RenderPipeline {
                 // Requires Features::CONSERVATIVE_RASTERIZATION
                 conservative: false,
             },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float, // texture::Texture::DEPTH_FORMAT,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less, // 1.
-                stencil: wgpu::StencilState::default(),     // 2.
-                bias: wgpu::DepthBiasState::default(),
-            }),
+            depth_stencil: if depth_stencil {
+                Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float, // texture::Texture::DEPTH_FORMAT,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::Less, // 1.
+                    stencil: wgpu::StencilState::default(),     // 2.
+                    bias: wgpu::DepthBiasState::default(),
+                })
+            }
+            else {
+                None
+            },
             multisample: wgpu::MultisampleState {
                 count: 1,
                 mask: !0,

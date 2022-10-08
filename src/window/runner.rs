@@ -1,9 +1,6 @@
 use bevy_app::AppExit;
-use bevy_ecs::{
-    event::ManualEventReader,
-    prelude::Events,
-    world::World,
-};
+use bevy_ecs::{event::ManualEventReader, prelude::Events, world::World};
+use cgmath::Vector2;
 use winit::{
     event::{DeviceEvent, Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop, EventLoopWindowTarget},
@@ -17,7 +14,10 @@ use crate::input::{
 
 use super::{
     commands::{WindowCommands, WindowMode},
-    events::{CreateWindow, CursorEntered, CursorLeft, FocusChanged, WindowCreated, RequestRedraw},
+    events::{
+        CreateWindow, CursorEntered, CursorLeft, FocusChanged, RequestRedraw, WindowCreated,
+        WindowResized,
+    },
     util, Windows, WinitWindows,
 };
 
@@ -135,7 +135,10 @@ pub fn execute_window_commands(world: &mut World) {
 }
 
 pub fn winit_event_loop_runner(mut app: bevy_app::App) {
-    let event_loop = app.world.remove_non_send_resource::<EventLoop<()>>().unwrap();
+    let event_loop = app
+        .world
+        .remove_non_send_resource::<EventLoop<()>>()
+        .unwrap();
     app.insert_non_send_resource(event_loop.create_proxy());
 
     let mut redraw_event_reader = ManualEventReader::<RequestRedraw>::default();
@@ -148,7 +151,17 @@ pub fn winit_event_loop_runner(mut app: bevy_app::App) {
                 event,
                 window_id: winit_window_id,
             } => match event {
-                // WindowEvent::Resized(_) => {},
+                WindowEvent::Resized(physical_size) => {
+                    let world = app.world.cell();
+                    let winit_windows = world.get_resource::<WinitWindows>().unwrap();
+                    let window_id = winit_windows
+                        .winit_to_lib
+                        .get(&winit_window_id)
+                        .unwrap()
+                        .clone();
+                    let mut events = world.get_resource_mut::<Events<WindowResized>>().unwrap();
+                    events.send(WindowResized { id: window_id, new_size: physical_size });
+                },
                 // WindowEvent::Moved(_) => {},
                 WindowEvent::CloseRequested => {
                     *control_flow = ControlFlow::Exit;
@@ -227,10 +240,20 @@ pub fn winit_event_loop_runner(mut app: bevy_app::App) {
                 //     value,
                 // } => {},
                 // WindowEvent::Touch(_) => {},
-                // WindowEvent::ScaleFactorChanged {
-                //     scale_factor,
-                //     new_inner_size,
-                // } => {},
+                WindowEvent::ScaleFactorChanged {
+                    scale_factor: _,
+                    new_inner_size,
+                } => {
+                    let world = app.world.cell();
+                    let winit_windows = world.get_resource::<WinitWindows>().unwrap();
+                    let window_id = winit_windows
+                        .winit_to_lib
+                        .get(&winit_window_id)
+                        .unwrap()
+                        .clone();
+                    let mut events = world.get_resource_mut::<Events<WindowResized>>().unwrap();
+                    events.send(WindowResized { id: window_id, new_size: *new_inner_size });
+                },
                 // WindowEvent::ThemeChanged(_) => {},
                 _ => (),
             },
@@ -300,8 +323,6 @@ pub fn handle_create_window(
     for event in create_events.drain() {
         let window = winit_windows.create_window(event_loop, event.id, event.desc);
         windows.add(window);
-        window_created_events.send(WindowCreated {
-            id: event.id,
-        });
+        window_created_events.send(WindowCreated { id: event.id });
     }
 }

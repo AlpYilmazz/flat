@@ -1,3 +1,6 @@
+use cgmath::Vector2;
+use winit::dpi::PhysicalSize;
+
 use super::{WindowId, WindowDescriptor};
 
 
@@ -8,6 +11,11 @@ pub struct CreateWindow {
 
 pub struct WindowCreated {
     pub id: WindowId,
+}
+
+pub struct WindowResized {
+    pub id: WindowId,
+    pub new_size: PhysicalSize<u32>,
 }
 
 pub struct RequestRedraw;

@@ -1,3 +1,4 @@
+use bevy_reflect::TypeUuid;
 use bytemuck::{Pod, Zeroable};
 use cgmath::{Quaternion, Vector3};
 use repr_trait::C;
@@ -71,7 +72,8 @@ impl From<Vec<u32>> for Indices {
     }
 }
 
-pub trait MeshVertex: Sized + C + Pod + Zeroable {
+// NOTE: Do I have to put TypeUuid?
+pub trait MeshVertex: TypeUuid + Sized + C + Pod + Zeroable + Send + Sync + 'static {
     const ATTR_NAMES: &'static [&'static str];
     const ATTRIBUTES: &'static [wgpu::VertexAttribute];
 
@@ -125,7 +127,8 @@ pub trait InstanceUnit: Sized + C + Pod + Zeroable {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, C, Pod, Zeroable)]
+#[derive(Clone, Copy, Debug, TypeUuid, C, Pod, Zeroable)]
+#[uuid = "10929DF8-15C5-472B-9398-7158AB89A0A6"]
 pub struct Vertex {
     pub position: [f32; 3],
     pub tex_coords: [f32; 2],

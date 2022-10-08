@@ -4,16 +4,13 @@ use bytemuck::{Pod, Zeroable};
 use repr_trait::C;
 use wgpu::util::DeviceExt;
 
+use crate::{camera::CameraUniform, texture::Texture};
+
 #[derive(Debug)]
 pub struct BindingLayoutEntry {
     pub visibility: wgpu::ShaderStages,
     pub ty: wgpu::BindingType,
     pub count: Option<NonZeroU32>,
-}
-
-#[derive(Debug)]
-pub struct BindingSetLayoutDescriptor {
-    pub entries: Vec<wgpu::BindGroupLayoutEntry>,
 }
 
 impl BindingLayoutEntry {
@@ -27,6 +24,20 @@ impl BindingLayoutEntry {
     }
 }
 
+#[derive(Debug)]
+pub struct BindingSetLayoutDescriptor {
+    pub entries: Vec<wgpu::BindGroupLayoutEntry>,
+}
+
+impl BindingSetLayoutDescriptor {
+    pub fn as_wgpu<'a>(&'a self) -> wgpu::BindGroupLayoutDescriptor<'a> {
+        wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &self.entries,
+        }
+    }
+}
+
 pub trait Binding {
     fn get_layout_entry(&self) -> BindingLayoutEntry;
     fn get_resource<'a>(&'a self) -> wgpu::BindingResource<'a>;
@@ -34,6 +45,7 @@ pub trait Binding {
 
 pub trait BindingSet {
     fn layout_desc(&self) -> BindingSetLayoutDescriptor;
+    fn bind_group_layout(&self, device: &wgpu::Device) -> wgpu::BindGroupLayout;
     fn into_bind_group(&self, device: &wgpu::Device) -> wgpu::BindGroup;
 }
 
@@ -66,13 +78,17 @@ where
         }
     }
 
-    fn into_bind_group(&self, device: &wgpu::Device) -> wgpu::BindGroup {
+    fn bind_group_layout(&self, device: &wgpu::Device) -> wgpu::BindGroupLayout {
         let bs_layout = self.layout_desc();
 
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
             entries: &bs_layout.entries,
-        });
+        })
+    }
+
+    fn into_bind_group(&self, device: &wgpu::Device) -> wgpu::BindGroup {
+        let bind_group_layout = self.bind_group_layout(device);
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
@@ -186,6 +202,12 @@ impl<T: StageLockedUniform> UniformBuffer<T> {
             buffer,
             _marker: PhantomData,
         }
+    }
+}
+
+impl<T: GpuUniform> AsRef<Self> for UniformBuffer<T> {
+    fn as_ref(&self) -> &Self {
+        self
     }
 }
 
@@ -398,17 +420,19 @@ macro_rules! impl_binding_set_tuple {
                 }
             }
 
+            fn bind_group_layout(&self, device: &wgpu::Device) -> wgpu::BindGroupLayout {
+                let bs_layout = self.layout_desc();
+        
+                device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: None,
+                    entries: &bs_layout.entries,
+                })
+            }
+
             fn into_bind_group(&self, device: &wgpu::Device) -> wgpu::BindGroup {
                 let ($($param,)*) = *self;
 
-                let bs_layout = self.layout_desc();
-
-                let bind_group_layout = device.create_bind_group_layout(
-                    &wgpu::BindGroupLayoutDescriptor {
-                        label: None,
-                        entries: &bs_layout.entries,
-                    }
-                );
+                let bind_group_layout = self.bind_group_layout(device);
 
                 let bind_group = device.create_bind_group(
                     &wgpu::BindGroupDescriptor {
