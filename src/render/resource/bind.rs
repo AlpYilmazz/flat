@@ -315,7 +315,7 @@ mod tests {
         // Create BindingSet
         let mvp_binding_set = (&camera_uniform, &model_transform_uniform);
         let color_binding_set = &color_uniform;
-        let texture = Texture::test_new();
+        let texture = Texture::unimplemented_new();
 
         // BindingSet into BindGroup
         let mvp_layout_debug = mvp_binding_set.layout_desc();

@@ -2,10 +2,9 @@ use asset::FlatAssetPlugin;
 use bevy_app::{CoreStage, Plugin, PluginGroup};
 use input::FlatInputPlugin;
 use render::FlatRenderPlugin;
-use window::{FlatWindowPlugin, FlatWinitPlugin};
+use window::{FlatWindowPlugin, FlatWinitPlugin, ExitOnWindowClose};
 
 // pub mod legacy;
-pub mod camera;
 pub mod misc;
 pub mod render;
 pub mod text;
@@ -45,12 +44,15 @@ pub struct FlatEngineCore;
 impl PluginGroup for FlatEngineCore {
     fn build(&mut self, group: &mut bevy_app::PluginGroupBuilder) {
         group
-        .add(FlatCorePlugin)
-        .add(FlatInputPlugin)
-        .add(FlatAssetPlugin)
-        .add(FlatWindowPlugin)
-        .add(FlatWinitPlugin::default())
-        .add(FlatRenderPlugin);
+            .add(FlatCorePlugin)
+            .add(FlatInputPlugin)
+            .add(FlatAssetPlugin)
+            .add(FlatWindowPlugin)
+            .add(FlatWinitPlugin {
+                exit_on_close: ExitOnWindowClose::Primary,
+                ..Default::default()
+            })
+            .add(FlatRenderPlugin);
     }
 }
 

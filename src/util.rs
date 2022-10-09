@@ -5,7 +5,7 @@ use std::{
 };
 
 use bevy_asset::HandleId;
-use bevy_ecs::prelude::Component;
+use bevy_ecs::prelude::{Component, Entity};
 
 pub struct Store<T> {
     ind: usize,
@@ -136,3 +136,26 @@ pub fn store_many<T>(store: &mut Store<T>, mut vals: Vec<T>) -> ReferMany<T> {
     ReferMany::to(inds)
 }
 
+pub struct Primary<T> {
+    pub entity: Entity,
+    _marker: PhantomData<fn() -> T>,
+}
+
+impl<T> Primary<T> {
+    pub fn new(entity: Entity) -> Self {
+        Self {
+            entity,
+            _marker: PhantomData,
+        }
+    }
+}
+
+pub trait EngineDefault {
+    fn engine_default() -> Self;
+}
+
+impl EngineDefault for wgpu::TextureFormat {
+    fn engine_default() -> Self {
+        wgpu::TextureFormat::Bgra8UnormSrgb
+    }
+}

@@ -1,9 +1,45 @@
+use bevy_ecs::{prelude::{Bundle, Component}, world::{FromWorld, World}};
 use bytemuck::{Pod, Zeroable};
 use cgmath::*;
 use repr_trait::C;
 
-use crate::render::resource::uniform::{GpuUniform, StageLockedUniform, UpdateGpuUniform};
+use super::resource::uniform::{GpuUniform, StageLockedUniform, Uniform, UpdateGpuUniform};
 
+#[derive(Bundle)]
+pub struct PerspectiveCameraBundle {
+    pub camera: Camera,
+    pub view: CameraView,
+    pub proj: PerspectiveProjection,
+    pub uniform: Uniform<Camera>,
+}
+
+impl FromWorld for PerspectiveCameraBundle {
+    fn from_world(world: &mut World) -> Self {
+        let device = world.get_resource::<wgpu::Device>().expect("Render device not found in the world");
+        Self::new(device)
+    }
+}
+
+impl PerspectiveCameraBundle {
+    pub fn new(device: &wgpu::Device) -> Self {
+        let mut camera = Camera::default();
+        let camera_view = CameraView::default();
+        let perspective_projection = PerspectiveProjection::default();
+        camera.view_matrix = camera_view.build_view_matrix();
+        camera.projection_matrix = perspective_projection.build_projection_matrix();
+
+        let camera_uniform: Uniform<Camera> = Uniform::new(device, camera.generate_uniform());
+        
+        Self {
+            camera: camera,
+            view: camera_view,
+            proj: perspective_projection,
+            uniform: camera_uniform,
+        }
+    }
+}
+
+#[derive(Component)]
 pub struct Camera {
     pub view_matrix: Matrix4<f32>,
     pub projection_matrix: Matrix4<f32>,
@@ -26,7 +62,7 @@ impl Default for Camera {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy, C, Pod, Zeroable)]
+#[derive(Component, Debug, Clone, Copy, C, Pod, Zeroable)]
 pub struct CameraUniform {
     pub view_proj: [[f32; 4]; 4],
 }
@@ -42,6 +78,7 @@ impl Default for CameraUniform {
     }
 }
 
+#[derive(Component)]
 pub struct CameraView {
     pub eye: Point3<f32>,
     pub target: Point3<f32>,
@@ -68,6 +105,7 @@ impl Default for CameraView {
     }
 }
 
+#[derive(Component)]
 pub struct PerspectiveProjection {
     pub aspect: f32,
     pub fovy: f32,

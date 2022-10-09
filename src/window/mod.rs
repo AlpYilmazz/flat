@@ -1,33 +1,50 @@
 use std::collections::HashMap;
 
+use ::raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
 use bevy_app::{CoreStage, Plugin};
 use bevy_ecs::system::IntoExclusiveSystem;
-use ::raw_window_handle::{RawWindowHandle, HasRawWindowHandle};
 use winit::{
+    dpi::PhysicalSize,
     event_loop::{EventLoop, EventLoopWindowTarget},
     window::WindowBuilder,
 };
 
 use self::{
     commands::WindowCommands,
-    events::{CreateWindow, CursorEntered, CursorLeft, FocusChanged, RequestRedraw, WindowCreated, WindowResized},
-    runner::{execute_window_commands, handle_create_window, winit_event_loop_runner}, raw_window_handle::RawWindowHandleWrapper,
+    events::{
+        CreateWindow, CursorEntered, CursorLeft, FocusChanged, RequestRedraw, WindowCreated,
+        WindowResized,
+    },
+    raw_window_handle::RawWindowHandleWrapper,
+    runner::{
+        execute_window_commands, handle_initial_create_window, winit_event_loop_runner,
+        WinitSettings,
+    },
 };
 
 pub mod commands;
 pub mod events;
-pub mod runner;
 pub mod raw_window_handle;
+pub mod runner;
 pub mod util;
+
+#[derive(Clone, Copy)]
+pub enum ExitOnWindowClose {
+    Any,
+    Primary,
+    All,
+}
 
 pub struct FlatWinitPlugin {
     pub create_primary_window: bool,
+    pub exit_on_close: ExitOnWindowClose,
 }
 
 impl Default for FlatWinitPlugin {
     fn default() -> Self {
         Self {
             create_primary_window: true,
+            exit_on_close: ExitOnWindowClose::Any,
         }
     }
 }
@@ -37,6 +54,10 @@ impl Plugin for FlatWinitPlugin {
         let event_loop = EventLoop::new();
 
         app.init_resource::<WinitWindows>()
+            .insert_resource(WinitSettings {
+                exit_on_close: self.exit_on_close,
+                run_return: true,
+            })
             .set_runner(winit_event_loop_runner)
             // NOTE: What is ExclusiveSystem
             .add_system_to_stage(
@@ -56,7 +77,7 @@ impl Plugin for FlatWinitPlugin {
                 desc,
             });
         }
-        handle_create_window(&mut app.world, &event_loop);
+        handle_initial_create_window(&mut app.world, &event_loop);
 
         app.insert_non_send_resource(event_loop);
     }
@@ -88,7 +109,7 @@ impl WinitWindows {
         &mut self,
         event_loop: &EventLoopWindowTarget<()>,
         id: WindowId,
-        desc: WindowDescriptor,
+        desc: &WindowDescriptor,
     ) -> Window {
         let builder = WindowBuilder::new();
 
@@ -99,13 +120,15 @@ impl WinitWindows {
         let winit_window = builder.build(event_loop).expect("Window build failed");
         // winit_window.request_redraw();
 
+        let scale_factor = winit_window.scale_factor();
+        let physical_size = winit_window.inner_size();
         let raw_window_handle = winit_window.raw_window_handle();
 
         self.winit_to_lib.insert(winit_window.id(), id);
         self.lib_to_winit.insert(id, winit_window.id());
         self.map.insert(id, winit_window);
 
-        Window::new(id, desc, raw_window_handle)
+        Window::new(id, &desc, scale_factor, physical_size, raw_window_handle)
     }
 }
 
@@ -156,16 +179,24 @@ impl WindowId {
 
 pub struct Window {
     pub id: WindowId,
-    pub desc: WindowDescriptor,
+    pub scale_factor: f64,
+    pub physical_size: PhysicalSize<u32>,
     pub raw_window_handle: RawWindowHandleWrapper,
     command_queue: Vec<WindowCommands>,
 }
 
 impl Window {
-    pub fn new(id: WindowId, desc: WindowDescriptor, raw_window_handle: RawWindowHandle) -> Self {
+    pub fn new(
+        id: WindowId,
+        _desc: &WindowDescriptor,
+        scale_factor: f64,
+        physical_size: PhysicalSize<u32>,
+        raw_window_handle: RawWindowHandle,
+    ) -> Self {
         Self {
             id,
-            desc,
+            scale_factor,
+            physical_size,
             raw_window_handle: RawWindowHandleWrapper::new(raw_window_handle),
             command_queue: Vec::new(),
         }

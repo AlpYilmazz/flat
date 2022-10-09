@@ -2,7 +2,7 @@ use bevy_app::AppExit;
 use bevy_ecs::{event::ManualEventReader, prelude::Events, world::World};
 use winit::{
     event::{DeviceEvent, Event, WindowEvent},
-    event_loop::{ControlFlow, EventLoop, EventLoopWindowTarget},
+    event_loop::{ControlFlow, EventLoop, EventLoopWindowTarget}, platform::run_return::EventLoopExtRunReturn,
 };
 
 use crate::input::{
@@ -17,7 +17,7 @@ use super::{
         CreateWindow, CursorEntered, CursorLeft, FocusChanged, RequestRedraw, WindowCreated,
         WindowResized,
     },
-    util, Windows, WinitWindows,
+    util, Windows, WinitWindows, ExitOnWindowClose,
 };
 
 pub fn execute_window_commands(world: &mut World) {
@@ -133,6 +133,26 @@ pub fn execute_window_commands(world: &mut World) {
     }
 }
 
+pub fn run_return<F>(mut event_loop: EventLoop<()>, event_handler: F)
+where
+    F: 'static + FnMut(Event<'_, ()>, &EventLoopWindowTarget<()>, &mut ControlFlow),
+{
+    event_loop.run_return(event_handler);
+}
+
+pub fn run<F>(event_loop: EventLoop<()>, event_handler: F)
+where
+    F: 'static + FnMut(Event<'_, ()>, &EventLoopWindowTarget<()>, &mut ControlFlow),
+{
+    event_loop.run(event_handler);
+}
+
+#[derive(Clone)]
+pub struct WinitSettings {
+    pub exit_on_close: ExitOnWindowClose,
+    pub run_return: bool,
+}
+
 pub fn winit_event_loop_runner(mut app: bevy_app::App) {
     let event_loop = app
         .world
@@ -140,121 +160,115 @@ pub fn winit_event_loop_runner(mut app: bevy_app::App) {
         .unwrap();
     app.insert_non_send_resource(event_loop.create_proxy());
 
+    let winit_settings = app.world.get_resource::<WinitSettings>().cloned().expect("WinitSettings not found");
+
+    let mut create_window_event_reader = ManualEventReader::<CreateWindow>::default();
     let mut redraw_event_reader = ManualEventReader::<RequestRedraw>::default();
     let mut app_exit_event_reader = ManualEventReader::<AppExit>::default();
 
-    event_loop.run(move |event0, event_loop_wt, control_flow| {
+    let event_handler: _ = move |event0: Event<()>, event_loop_wt: &EventLoopWindowTarget<()>, control_flow: &mut ControlFlow| {
         match event0 {
             Event::NewEvents(_) => {}
             Event::WindowEvent {
                 event,
                 window_id: winit_window_id,
-            } => match event {
-                WindowEvent::Resized(physical_size) => {
-                    let world = app.world.cell();
-                    let winit_windows = world.get_resource::<WinitWindows>().unwrap();
-                    let window_id = winit_windows
-                        .winit_to_lib
-                        .get(&winit_window_id)
-                        .unwrap()
-                        .clone();
-                    let mut events = world.get_resource_mut::<Events<WindowResized>>().unwrap();
-                    events.send(WindowResized { id: window_id, new_size: physical_size });
-                },
-                // WindowEvent::Moved(_) => {},
-                WindowEvent::CloseRequested => {
-                    *control_flow = ControlFlow::Exit;
-                },
-                // WindowEvent::Destroyed => {},
-                // WindowEvent::DroppedFile(_) => {},
-                // WindowEvent::HoveredFile(_) => {},
-                // WindowEvent::HoveredFileCancelled => {},
-                // WindowEvent::ReceivedCharacter(_) => {},
-                WindowEvent::Focused(focused) => {
-                    let world = app.world.cell();
-                    let winit_windows = world.get_resource::<WinitWindows>().unwrap();
-                    let window_id = winit_windows
-                        .winit_to_lib
-                        .get(&winit_window_id)
-                        .unwrap()
-                        .clone();
-                    let mut events = world.get_resource_mut::<Events<FocusChanged>>().unwrap();
-                    events.send(FocusChanged { window_id, focused });
+            } => {
+                let world = app.world.cell();
+                let mut windows = world.get_resource_mut::<Windows>().unwrap();
+                let mut winit_windows = world.get_resource_mut::<WinitWindows>().unwrap();
+                let window_id = winit_windows
+                    .winit_to_lib
+                    .get(&winit_window_id)
+                    .unwrap()
+                    .clone();
+                
+                match event {
+                    WindowEvent::Resized(physical_size) => {
+                        let window = windows.map.get_mut(&window_id).unwrap();
+                        window.physical_size = physical_size;
+                        let mut events = world.get_resource_mut::<Events<WindowResized>>().unwrap();
+                        events.send(WindowResized { id: window_id, new_size: physical_size });
+                    },
+                    // WindowEvent::Moved(_) => {},
+                    WindowEvent::CloseRequested => {
+                        match winit_settings.exit_on_close {
+                            ExitOnWindowClose::Any => {
+                                *control_flow = ControlFlow::Exit;
+                            },
+                            ExitOnWindowClose::Primary if window_id.is_primary() => {
+                                *control_flow = ControlFlow::Exit;
+                            },
+                            ExitOnWindowClose::Primary | ExitOnWindowClose::All => {
+                                winit_windows.map.remove(&window_id);
+                                windows.map.remove(&window_id);
+                                if windows.map.is_empty() {
+                                    *control_flow = ControlFlow::Exit;
+                                }
+                            },
+                        }
+                    },
+                    // WindowEvent::Destroyed => {},
+                    // WindowEvent::DroppedFile(_) => {},
+                    // WindowEvent::HoveredFile(_) => {},
+                    // WindowEvent::HoveredFileCancelled => {},
+                    // WindowEvent::ReceivedCharacter(_) => {},
+                    WindowEvent::Focused(focused) => {
+                        let mut events = world.get_resource_mut::<Events<FocusChanged>>().unwrap();
+                        events.send(FocusChanged { window_id, focused });
+                    }
+                    WindowEvent::KeyboardInput { input, .. } => {
+                        let mut events = world.get_resource_mut::<Events<KeyboardInput>>().unwrap();
+                        events.send(KeyboardInput::from(input));
+                    }
+                    WindowEvent::ModifiersChanged(state) => {
+                        let mut events = world.get_resource_mut::<Events<ModifiersChanged>>().unwrap();
+                        events.send(ModifiersChanged(ModifiersState::from(state)));
+                    }
+                    // WindowEvent::CursorMoved {
+                    //     device_id,
+                    //     position,
+                    //     modifiers,
+                    // } => {},
+                    WindowEvent::CursorEntered { .. } => {
+                        let mut events = world.get_resource_mut::<Events<CursorEntered>>().unwrap();
+                        events.send(CursorEntered { window_id });
+                    }
+                    WindowEvent::CursorLeft { .. } => {
+                        let mut events = world.get_resource_mut::<Events<CursorLeft>>().unwrap();
+                        events.send(CursorLeft { window_id });
+                    }
+                    WindowEvent::MouseWheel { delta, .. } => {
+                        let mut events = world.get_resource_mut::<Events<MouseWheel>>().unwrap();
+                        events.send(MouseWheel::from(delta));
+                    }
+                    WindowEvent::MouseInput { state, button, .. } => {
+                        let mut events = world.get_resource_mut::<Events<MouseButtonInput>>().unwrap();
+                        events.send(MouseButtonInput::from_with(button, state));
+                    }
+                    // WindowEvent::TouchpadPressure {
+                    //     device_id,
+                    //     pressure,
+                    //     stage,
+                    // } => {},
+                    // WindowEvent::AxisMotion {
+                    //     device_id,
+                    //     axis,
+                    //     value,
+                    // } => {},
+                    // WindowEvent::Touch(_) => {},
+                    WindowEvent::ScaleFactorChanged {
+                        scale_factor,
+                        new_inner_size,
+                    } => {
+                        let window = windows.map.get_mut(&window_id).unwrap();
+                        window.scale_factor = scale_factor;
+                        window.physical_size = *new_inner_size;
+                        let mut events = world.get_resource_mut::<Events<WindowResized>>().unwrap();
+                        events.send(WindowResized { id: window_id, new_size: *new_inner_size });
+                    },
+                    // WindowEvent::ThemeChanged(_) => {},
+                    _ => (),
                 }
-                WindowEvent::KeyboardInput { input, .. } => {
-                    let world = app.world.cell();
-                    let mut events = world.get_resource_mut::<Events<KeyboardInput>>().unwrap();
-                    events.send(KeyboardInput::from(input));
-                }
-                WindowEvent::ModifiersChanged(state) => {
-                    let world = app.world.cell();
-                    let mut events = world.get_resource_mut::<Events<ModifiersChanged>>().unwrap();
-                    events.send(ModifiersChanged(ModifiersState::from(state)));
-                }
-                // WindowEvent::CursorMoved {
-                //     device_id,
-                //     position,
-                //     modifiers,
-                // } => {},
-                WindowEvent::CursorEntered { .. } => {
-                    let world = app.world.cell();
-                    let winit_windows = world.get_resource::<WinitWindows>().unwrap();
-                    let window_id = winit_windows
-                        .winit_to_lib
-                        .get(&winit_window_id)
-                        .unwrap()
-                        .clone();
-                    let mut events = world.get_resource_mut::<Events<CursorEntered>>().unwrap();
-                    events.send(CursorEntered { window_id });
-                }
-                WindowEvent::CursorLeft { .. } => {
-                    let world = app.world.cell();
-                    let winit_windows = world.get_resource::<WinitWindows>().unwrap();
-                    let window_id = winit_windows
-                        .winit_to_lib
-                        .get(&winit_window_id)
-                        .unwrap()
-                        .clone();
-                    let mut events = world.get_resource_mut::<Events<CursorLeft>>().unwrap();
-                    events.send(CursorLeft { window_id });
-                }
-                WindowEvent::MouseWheel { delta, .. } => {
-                    let world = app.world.cell();
-                    let mut events = world.get_resource_mut::<Events<MouseWheel>>().unwrap();
-                    events.send(MouseWheel::from(delta));
-                }
-                WindowEvent::MouseInput { state, button, .. } => {
-                    let world = app.world.cell();
-                    let mut events = world.get_resource_mut::<Events<MouseButtonInput>>().unwrap();
-                    events.send(MouseButtonInput::from_with(button, state));
-                }
-                // WindowEvent::TouchpadPressure {
-                //     device_id,
-                //     pressure,
-                //     stage,
-                // } => {},
-                // WindowEvent::AxisMotion {
-                //     device_id,
-                //     axis,
-                //     value,
-                // } => {},
-                // WindowEvent::Touch(_) => {},
-                WindowEvent::ScaleFactorChanged {
-                    scale_factor: _,
-                    new_inner_size,
-                } => {
-                    let world = app.world.cell();
-                    let winit_windows = world.get_resource::<WinitWindows>().unwrap();
-                    let window_id = winit_windows
-                        .winit_to_lib
-                        .get(&winit_window_id)
-                        .unwrap()
-                        .clone();
-                    let mut events = world.get_resource_mut::<Events<WindowResized>>().unwrap();
-                    events.send(WindowResized { id: window_id, new_size: *new_inner_size });
-                },
-                // WindowEvent::ThemeChanged(_) => {},
-                _ => (),
             },
             Event::DeviceEvent { device_id: _, event } => {
                 match event {
@@ -277,7 +291,7 @@ pub fn winit_event_loop_runner(mut app: bevy_app::App) {
             Event::Suspended => {}
             Event::Resumed => {}
             Event::MainEventsCleared => {
-                handle_create_window(&mut app.world, event_loop_wt);
+                handle_create_window(&mut app.world, event_loop_wt, &mut create_window_event_reader);
                 // NOTE: this is why you cannot borrow app at the top
                 app.update();
             }
@@ -305,13 +319,39 @@ pub fn winit_event_loop_runner(mut app: bevy_app::App) {
             // }
             // _ => (),
         }
-    });
+    };
+
+    if winit_settings.run_return {
+        run_return(event_loop, event_handler);
+        println!("App Exited");
+    }
+    else {
+        run(event_loop, event_handler);
+    }
 }
 
 pub fn handle_create_window(
     world: &mut World,
     event_loop: &EventLoopWindowTarget<()>,
-    // reader: &mut ManualEventReader<CreateWindow>,
+    reader: &mut ManualEventReader<CreateWindow>,
+) {
+    let world = world.cell();
+    let mut winit_windows = world.get_resource_mut::<WinitWindows>().unwrap();
+    let mut windows = world.get_resource_mut::<Windows>().unwrap();
+    let create_events = world.get_resource::<Events<CreateWindow>>().unwrap();
+    let mut window_created_events = world.get_resource_mut::<Events<WindowCreated>>().unwrap();
+
+    for event in reader.iter(&create_events) {
+        println!("Create Window: {:?}", event.id);
+        let window = winit_windows.create_window(event_loop, event.id, &event.desc);
+        windows.add(window);
+        window_created_events.send(WindowCreated { id: event.id });
+    }
+}
+
+pub fn handle_initial_create_window(
+    world: &mut World,
+    event_loop: &EventLoopWindowTarget<()>,
 ) {
     let world = world.cell();
     let mut winit_windows = world.get_resource_mut::<WinitWindows>().unwrap();
@@ -320,7 +360,8 @@ pub fn handle_create_window(
     let mut window_created_events = world.get_resource_mut::<Events<WindowCreated>>().unwrap();
 
     for event in create_events.drain() {
-        let window = winit_windows.create_window(event_loop, event.id, event.desc);
+        println!("Create initial Window: {:?}", event.id);
+        let window = winit_windows.create_window(event_loop, event.id, &event.desc);
         windows.add(window);
         window_created_events.send(WindowCreated { id: event.id });
     }

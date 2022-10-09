@@ -118,21 +118,6 @@ pub fn render_system<T: RenderAsset>(
                     stencil_ops: None,
                 }
             }),
-            // depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-            //     view: &(
-            //         depth_texture
-            //         .as_ref()
-            //         .as_ref()
-            //         .unwrap()
-            //         .0
-            //         .view
-            //     ),
-            //     depth_ops: Some(wgpu::Operations {
-            //         load: wgpu::LoadOp::Clear(1.0),
-            //         store: true,
-            //     }),
-            //     stencil_ops: None,
-            // }),
         });
 
         for (pipeline, binds, render_asset_handle, instance) in render_entities.iter() {
@@ -163,7 +148,7 @@ fn draw_entity<'a, T: RenderEntity>(
 ) {
     render_pass.set_pipeline(&pipeline.0);
 
-    // TODO: binds are bound in the same order as they appear in RefMulti
+    // TODO: binds are bound in the same order as they appear in RefMany
     for (index, bind_group) in bind_groups.into_iter().enumerate() {
         render_pass.set_bind_group(index as u32, bind_group, &[]);
     }

@@ -60,8 +60,8 @@ pub struct Texture {
 }
 
 impl Texture {
-    pub fn test_new() -> Self {
-        todo!()
+    pub fn unimplemented_new() -> Self {
+        unimplemented!()
     }
 
     pub fn from_bytes(

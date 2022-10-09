@@ -1,28 +1,27 @@
 use std::collections::HashMap;
 
-use bevy_app::{CoreStage, Plugin};
+use bevy_app::{App, CoreStage, Plugin, StartupStage};
 use bevy_asset::{AddAsset, Assets, Handle, HandleId};
 use bevy_ecs::{
-    prelude::{Bundle, Component, EventReader},
+    prelude::{Bundle, Component, Entity, EventReader, EventWriter},
     schedule::{StageLabel, SystemStage},
-    system::{Commands, Local, Query, Res, ResMut},
-    world::World,
+    system::{Commands, Query, Res, ResMut},
 };
 use wgpu::include_wgsl;
 use winit::dpi::PhysicalSize;
 
 use crate::{
-    camera::{Camera, CameraUniform, CameraView, PerspectiveProjection},
     texture,
-    util::{store, store_many, Refer, ReferMany, Store},
+    util::{store, store_many, EngineDefault, Primary, Refer, ReferMany, Store},
     window::{
-        events::{WindowCreated, WindowResized},
-        WindowId, WinitWindows,
+        events::{CreateWindow, WindowCreated, WindowResized},
+        WindowDescriptor, WindowId, Windows, WinitWindows,
     },
 };
 
 use self::{
-    mesh::{GpuMesh, Mesh},
+    camera::{Camera, PerspectiveCameraBundle, PerspectiveProjection},
+    mesh::Mesh,
     resource::{
         bind::BindingSet,
         shader::{ShaderSource, ShaderSourceLoader, Shaders},
@@ -31,11 +30,12 @@ use self::{
         buffer::{MeshVertex, Vertex},
         pipeline::RenderPipeline,
         shader::Shader,
-        uniform::{Uniform, UniformBuffer, UpdateGpuUniform},
+        uniform::{Uniform, UpdateGpuUniform},
     },
     system::{AddRenderSystem, RenderAsset},
 };
 
+pub mod camera;
 pub mod mesh;
 pub mod mesh_bevy;
 pub mod resource;
@@ -50,7 +50,7 @@ pub enum RenderStage {
 
 pub struct FlatRenderPlugin;
 impl Plugin for FlatRenderPlugin {
-    fn build(&self, app: &mut bevy_app::App) {
+    fn build(&self, app: &mut App) {
         app.add_stage_after(
             CoreStage::Last,
             RenderStage::Prepare,
@@ -69,19 +69,18 @@ impl Plugin for FlatRenderPlugin {
         .init_resource::<Surfaces>()
         .init_resource::<Store<RenderPipeline>>()
         .init_resource::<Store<wgpu::BindGroup>>()
-        .init_resource::<Store<(Camera, CameraView, PerspectiveProjection)>>()
-        .init_resource::<Store<UniformBuffer<CameraUniform>>>()
         .init_resource::<Shaders>()
         .add_asset_loader(ShaderSourceLoader)
         .add_asset::<ShaderSource>()
         .add_system_to_stage(CoreStage::PreUpdate, create_surface_system)
-        .add_system_to_stage(CoreStage::Update, create_render_entity_test)
         .add_system_to_stage(RenderStage::Prepare, reconfigure_surface_system)
         .add_render_system::<Mesh<Vertex>>();
-        // .add_system_to_stage(RenderStage::Render, render_system);
 
-        create_wgpu_resources(&mut app.world);
-        // create_render_entity_test(&mut app.world);
+        create_wgpu_resources(app);
+
+        app.add_startup_system_to_stage(StartupStage::PreStartup, test_create_primary_camera)
+            .add_startup_system(test_create_render_entity)
+            .add_startup_system(test_create_more_windows);
     }
 }
 
@@ -105,16 +104,21 @@ pub struct RenderEntityBundle<T: RenderAsset> {
     pub render_asset: Handle<T>,
 }
 
-pub fn create_wgpu_resources(world: &mut World) {
-    let winit_windows = world.get_resource::<WinitWindows>().unwrap();
-    let window = winit_windows.map.get(&WindowId::primary()).unwrap();
+///
+/// Creates wgpu Instance, Device and Queue as World Resources.
+///
+/// Creates wpgu Surfaces for initial windows.
+///
+pub fn create_wgpu_resources(app: &mut App) {
+    let winit_windows = app.world.get_resource::<WinitWindows>().unwrap();
+    let primary_window = winit_windows.map.get(&WindowId::primary());
 
     let instance = wgpu::Instance::new(wgpu::Backends::all());
-    let surface = unsafe { instance.create_surface(window) };
+    let surface = primary_window.map(|window| unsafe { instance.create_surface(window) });
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::HighPerformance,
         force_fallback_adapter: false,
-        compatible_surface: Some(&surface),
+        compatible_surface: surface.as_ref(),
     }))
     .unwrap();
 
@@ -132,37 +136,45 @@ pub fn create_wgpu_resources(world: &mut World) {
     ))
     .unwrap();
 
-    world.insert_resource(instance);
-    world.insert_resource(adapter);
-    world.insert_resource(device);
-    world.insert_resource(queue);
+    app.insert_resource(instance)
+        .insert_resource(device)
+        .insert_resource(queue);
 }
 
-fn create_render_entity_test(
-    mut count: Local<usize>,
+fn test_create_more_windows(
+    mut windows: ResMut<Windows>,
+    mut create_window_event_writer: EventWriter<CreateWindow>,
+) {
+    create_window_event_writer.send(CreateWindow {
+        id: windows.reserve_id(),
+        desc: WindowDescriptor {},
+    });
+    create_window_event_writer.send(CreateWindow {
+        id: windows.reserve_id(),
+        desc: WindowDescriptor {},
+    });
+}
+
+fn test_create_primary_camera(device: Res<wgpu::Device>, mut commands: Commands) {
+    let camera_bundle = PerspectiveCameraBundle::new(&device);
+    let primary_camera = commands.spawn().insert_bundle(camera_bundle).id();
+
+    commands.insert_resource(Primary::<Camera>::new(primary_camera));
+}
+
+fn test_create_render_entity(
     device: Res<wgpu::Device>,
-    surfaces: Res<Surfaces>,
     mut pipelines: ResMut<Store<RenderPipeline>>,
     mut bind_groups: ResMut<Store<wgpu::BindGroup>>,
-    mut cameras: ResMut<Store<(Camera, CameraView, PerspectiveProjection)>>,
-    mut camera_uniforms: ResMut<Store<Uniform<Camera>>>,
     mut meshes: ResMut<Assets<Mesh<Vertex>>>,
     mut commands: Commands,
+    primary_camera: Res<Primary<Camera>>,
+    camera_query: Query<(Entity, &Uniform<Camera>)>,
 ) {
-    if *count > 0 {
-        return;
-    }
-    *count += 1;
-
-    let config = &surfaces.0.get(&WindowId::primary()).unwrap().config;
-
-    let mut camera = Camera::default();
-    let camera_view = CameraView::default();
-    let perspective_projection = PerspectiveProjection::default();
-    camera.view_matrix = camera_view.build_view_matrix();
-    camera.projection_matrix = perspective_projection.build_projection_matrix();
-
-    let camera_uniform: Uniform<Camera> = Uniform::new(&device, camera.generate_uniform());
+    let (_, camera_uniform) = camera_query
+        .iter()
+        .find(|(entity, _)| entity.eq(&primary_camera.entity))
+        .unwrap();
 
     let camera_bind = camera_uniform.as_ref().into_bind_group(&device);
 
@@ -173,7 +185,7 @@ fn create_render_entity_test(
             device.create_shader_module(include_wgsl!("../../res/test.wgsl")),
             vec![Vertex::layout()],
             vec![Some(wgpu::ColorTargetState {
-                format: config.format,
+                format: wgpu::TextureFormat::engine_default(),
                 blend: Some(wgpu::BlendState::REPLACE),
                 write_mask: wgpu::ColorWrites::ALL,
             })],
@@ -183,9 +195,6 @@ fn create_render_entity_test(
     );
 
     let cube_mesh = mesh::primitive::create_unit_cube();
-
-    cameras.insert_primary((camera, camera_view, perspective_projection));
-    camera_uniforms.insert_primary(camera_uniform);
 
     let refer_pipeline = store(&mut pipelines, pipeline);
     let refer_binds = store_many(&mut bind_groups, vec![camera_bind]);
@@ -201,27 +210,29 @@ fn create_render_entity_test(
 fn reconfigure_camera_aspect(
     queue: &wgpu::Queue,
     camera: &mut Camera,
-    camera_uniform: &mut UniformBuffer<CameraUniform>,
+    camera_uniform: &mut Uniform<Camera>,
     perspective_projection: &mut PerspectiveProjection,
     new_size: &PhysicalSize<u32>,
 ) {
     perspective_projection.aspect = new_size.width as f32 / new_size.height as f32;
     camera.projection_matrix = perspective_projection.build_projection_matrix();
-    let mut camera_gpu_uniform = CameraUniform::default();
-    camera.update_uniform(&mut camera_gpu_uniform);
-    camera_uniform.update(queue, camera_gpu_uniform);
+    camera.update_uniform(&mut camera_uniform.gpu_uniform);
+    camera_uniform.sync_buffer(queue);
 }
 
 pub fn reconfigure_surface_system(
     device: Res<wgpu::Device>,
     queue: Res<wgpu::Queue>,
     mut surfaces: ResMut<Surfaces>,
-    mut cameras: ResMut<Store<(Camera, CameraView, PerspectiveProjection)>>,
-    mut camera_uniforms: ResMut<Store<UniformBuffer<CameraUniform>>>,
-    // window_resize_events: Res<Events<WindowResized>>,
+    primary_camera: Res<Primary<Camera>>,
+    mut camera_query: Query<(
+        Entity,
+        &mut Camera,
+        &mut PerspectiveProjection,
+        &mut Uniform<Camera>,
+    )>,
     mut window_resize_events: EventReader<WindowResized>,
 ) {
-    // let mut reader: ManualEventReader<WindowResized> = ManualEventReader::default();
     for WindowResized {
         id: window_id,
         new_size,
@@ -229,21 +240,25 @@ pub fn reconfigure_surface_system(
     {
         if new_size.width > 0 && new_size.height > 0 {
             println!(
-                "Reconfiguring window: {:?}, size: {:?}",
+                "Reconfiguring surface: {:?}, size: {:?}",
                 window_id, new_size
             );
             let SurfaceKit { surface, config } = surfaces.0.get_mut(window_id).unwrap();
             config.width = new_size.width;
             config.height = new_size.height;
             surface.configure(&device, config);
+            println!("Reconfigured");
 
             if window_id.is_primary() {
-                let (camera, _, perspective_projection) = cameras.get_primary_mut().unwrap();
+                let (_, mut camera, mut perspective_projection, mut camera_uniform) = camera_query
+                    .iter_mut()
+                    .find(|(entity, _, _, _)| entity.eq(&primary_camera.entity))
+                    .unwrap();
                 reconfigure_camera_aspect(
                     &queue,
-                    camera,
-                    camera_uniforms.get_primary_mut().unwrap(),
-                    perspective_projection,
+                    &mut camera,
+                    &mut camera_uniform,
+                    &mut perspective_projection,
                     &new_size,
                 )
             }
@@ -254,150 +269,50 @@ pub fn reconfigure_surface_system(
 pub fn create_surface_system(
     device: Res<wgpu::Device>,
     instance: Res<wgpu::Instance>,
-    adapter: Res<wgpu::Adapter>,
     mut surfaces: ResMut<Surfaces>,
-    // windows: Res<Windows>,
-    winit_windows: Res<WinitWindows>,
-    // create_window_events: Res<Events<WindowCreated>>,
+    windows: Res<Windows>,
     mut create_window_events: EventReader<WindowCreated>,
 ) {
-    // let mut reader: ManualEventReader<WindowCreated> = ManualEventReader::default();
+    let mut count = 0;
     for WindowCreated { id: window_id } in create_window_events.iter() {
-        // TODO: put RawWindowHandle into Windows store
-        // let raw_window = &windows.map.get(window_id).unwrap().raw_window_handle;
-        // let surface = unsafe { instance.create_surface(&raw_window.get_handle()) };
-        let window = winit_windows.map.get(window_id).unwrap();
-        let size = window.inner_size();
-        println!("Creating window: {:?}, size: {:?}", window_id, size);
-        let surface = unsafe { instance.create_surface(window) };
-        let config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: surface.get_supported_formats(&adapter)[0],
-            width: size.width,
-            height: size.height,
-            present_mode: wgpu::PresentMode::Fifo,
-        };
-        surface.configure(&device, &config);
-        surfaces
-            .0
-            .insert(window_id.clone(), SurfaceKit { surface, config });
+        let window = windows.map.get(window_id).unwrap();
+        let raw_window = &window.raw_window_handle;
+
+        let size = window.physical_size;
+
+        println!(
+            "i: {}, Creating surface: {:?}, size: {:?}",
+            count, window_id, size
+        );
+
+        let surface_kit =
+            unsafe { create_surface(&instance, &device, &raw_window.get_handle(), size) };
+        println!("Created");
+
+        surfaces.0.insert(window_id.clone(), surface_kit);
+
+        count += 1;
     }
 }
 
-pub fn render_system(
-    // surface: Res<wgpu::Surface>,
-    surfaces: Res<Surfaces>,
-    device: Res<wgpu::Device>,
-    queue: Res<wgpu::Queue>,
-    depth_texture: Option<Res<DepthTexture>>,
-    pipelines: Res<Store<RenderPipeline>>,
-    bind_groups: Res<Store<wgpu::BindGroup>>,
-    objects: Query<(
-        &Refer<RenderPipeline>,
-        &ReferMany<wgpu::BindGroup>,
-        &GpuMesh,
-        Option<&InstanceData>,
-    )>,
-) {
-    let surface = &surfaces.0.get(&WindowId::primary()).unwrap().surface;
-    let output = surface.get_current_texture().unwrap();
-    let view = output
-        .texture
-        .create_view(&wgpu::TextureViewDescriptor::default());
+unsafe fn create_surface<W>(
+    instance: &wgpu::Instance,
+    device: &wgpu::Device,
+    window: &W,
+    size: PhysicalSize<u32>,
+) -> SurfaceKit
+where
+    W: raw_window_handle::HasRawWindowHandle,
+{
+    let surface = instance.create_surface(window);
+    let config = wgpu::SurfaceConfiguration {
+        usage: wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::RENDER_ATTACHMENT,
+        format: wgpu::TextureFormat::engine_default(),
+        width: size.width,
+        height: size.height,
+        present_mode: wgpu::PresentMode::Fifo,
+    };
+    surface.configure(&device, &config);
 
-    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("Render Encoder"),
-    });
-
-    {
-        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("Render Pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                    store: true,
-                },
-            })],
-            depth_stencil_attachment: depth_texture.as_ref().as_ref().map(|dt| {
-                wgpu::RenderPassDepthStencilAttachment {
-                    view: &dt.0.view,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
-                        store: true,
-                    }),
-                    stencil_ops: None,
-                }
-            }),
-            // depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-            //     view: &(
-            //         depth_texture
-            //         .as_ref()
-            //         .as_ref()
-            //         .unwrap()
-            //         .0
-            //         .view
-            //     ),
-            //     depth_ops: Some(wgpu::Operations {
-            //         load: wgpu::LoadOp::Clear(1.0),
-            //         store: true,
-            //     }),
-            //     stencil_ops: None,
-            // }),
-        });
-
-        for (pipeline, binds, mesh, instance) in objects.iter() {
-            draw_mesh(
-                &mut render_pass,
-                pipelines.get(**pipeline).unwrap(),
-                (*binds)
-                    .iter()
-                    .map(|i| bind_groups.get(*i).unwrap())
-                    .collect::<Vec<_>>(),
-                mesh,
-                instance,
-            );
-        }
-    } // drop(render_pass) <- mut borrow encoder <- mut borrow self
-
-    queue.submit(std::iter::once(encoder.finish()));
-
-    output.present();
-}
-
-fn draw_mesh<'a>(
-    render_pass: &mut wgpu::RenderPass<'a>,
-    pipeline: &'a RenderPipeline,
-    bind_groups: Vec<&'a wgpu::BindGroup>,
-    mesh: &'a GpuMesh,
-    instance: Option<&'a InstanceData>,
-) {
-    render_pass.set_pipeline(&pipeline.0);
-
-    // TODO: binds are bound in the same order as they appear in RefMulti
-    for (index, bind_group) in bind_groups.into_iter().enumerate() {
-        render_pass.set_bind_group(index as u32, bind_group, &[]);
-    }
-
-    let mut instance_count = 1;
-    render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-    if let Some(instance_data) = instance {
-        render_pass.set_vertex_buffer(1, instance_data.0.slice(..));
-        instance_count = instance_data.1;
-    }
-
-    match &mesh.assembly {
-        mesh::GpuMeshAssembly::Indexed {
-            index_buffer,
-            index_count,
-            index_format,
-        } => {
-            render_pass.set_index_buffer(index_buffer.slice(..), *index_format);
-            render_pass.draw_indexed(0..*index_count as u32, 0, 0..instance_count);
-        }
-        mesh::GpuMeshAssembly::NonIndexed { vertex_count } => {
-            render_pass.draw(0..*vertex_count as u32, 0..instance_count);
-        }
-    }
+    SurfaceKit { surface, config }
 }

@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use bevy_ecs::{prelude::Component, world::{FromWorld, World}};
 use bytemuck::{Pod, Zeroable};
 use repr_trait::C;
 use wgpu::util::DeviceExt;
@@ -27,6 +28,7 @@ pub trait UpdateGpuUniform {
     fn update_uniform(&self, gpu_uniform: &mut Self::GU);
 }
 
+#[derive(Component)]
 pub struct Uniform<H>
 where
     H: UpdateGpuUniform,
@@ -34,6 +36,17 @@ where
     pub gpu_uniform: H::GU,
     buffer: UniformBuffer<H::GU>,
     _uniform_repr: PhantomData<H>,
+}
+
+impl<H> FromWorld for Uniform<H>
+where
+    H: UpdateGpuUniform,
+    H::GU: StageLockedUniform + Default,
+{
+    fn from_world(world: &mut World) -> Self {
+        let device = world.get_resource::<wgpu::Device>().expect("Render device not found in the world");
+        Self::new_default(device)
+    }
 }
 
 impl<H> Uniform<H>
