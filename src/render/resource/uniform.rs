@@ -1,19 +1,20 @@
 use std::marker::PhantomData;
 
-use bevy_ecs::{prelude::Component, world::{FromWorld, World}};
+use bevy_ecs::{
+    prelude::Component,
+    world::{FromWorld, World},
+};
 use bytemuck::{Pod, Zeroable};
 use repr_trait::C;
 use wgpu::util::DeviceExt;
 
 use super::bind::{Binding, BindingLayoutEntry};
 
-pub trait GpuUniform: C + Pod + Zeroable {}
-
-pub trait StageLockedUniform: GpuUniform {
-    const FORCE_STAGE: wgpu::ShaderStages;
+pub trait GpuUniform: C + Pod + Zeroable + Send + Sync + 'static {
+    const STAGE: wgpu::ShaderStages;
 }
 
-pub trait UpdateGpuUniform {
+pub trait HandleGpuUniform {
     type GU: GpuUniform;
 
     fn generate_uniform(&self) -> Self::GU
@@ -24,14 +25,14 @@ pub trait UpdateGpuUniform {
         self.update_uniform(&mut gpu_uniform);
         gpu_uniform
     }
-    
+
     fn update_uniform(&self, gpu_uniform: &mut Self::GU);
 }
 
 #[derive(Component)]
 pub struct Uniform<H>
 where
-    H: UpdateGpuUniform,
+    H: HandleGpuUniform,
 {
     pub gpu_uniform: H::GU,
     buffer: UniformBuffer<H::GU>,
@@ -40,18 +41,20 @@ where
 
 impl<H> FromWorld for Uniform<H>
 where
-    H: UpdateGpuUniform,
-    H::GU: StageLockedUniform + Default,
+    H: HandleGpuUniform,
+    H::GU: Default,
 {
     fn from_world(world: &mut World) -> Self {
-        let device = world.get_resource::<wgpu::Device>().expect("Render device not found in the world");
+        let device = world
+            .get_resource::<wgpu::Device>()
+            .expect("Render device not found in the world");
         Self::new_default(device)
     }
 }
 
 impl<H> Uniform<H>
 where
-    H: UpdateGpuUniform,
+    H: HandleGpuUniform,
 {
     pub fn new_at(device: &wgpu::Device, stage: wgpu::ShaderStages, gpu_uniform: H::GU) -> Self {
         let buffer = UniformBuffer::new_init_at(device, stage, gpu_uniform);
@@ -69,10 +72,7 @@ where
         Self::new_at(device, stage, H::GU::default())
     }
 
-    pub fn new(device: &wgpu::Device, gpu_uniform: H::GU) -> Self
-    where
-        H::GU: StageLockedUniform,
-    {
+    pub fn new(device: &wgpu::Device, gpu_uniform: H::GU) -> Self {
         let buffer = UniformBuffer::new_init(device, gpu_uniform);
         Self {
             gpu_uniform,
@@ -83,7 +83,7 @@ where
 
     pub fn new_default(device: &wgpu::Device) -> Self
     where
-        H::GU: StageLockedUniform + Default,
+        H::GU: Default,
     {
         Self::new(device, H::GU::default())
     }
@@ -95,7 +95,7 @@ where
 
 impl<H> AsRef<Self> for Uniform<H>
 where
-    H: UpdateGpuUniform,
+    H: HandleGpuUniform,
 {
     fn as_ref(&self) -> &Self {
         self
@@ -104,7 +104,7 @@ where
 
 impl<H> Binding for Uniform<H>
 where
-    H: UpdateGpuUniform,
+    H: HandleGpuUniform,
 {
     fn get_layout_entry(&self) -> BindingLayoutEntry {
         self.buffer.get_layout_entry()
@@ -135,12 +135,6 @@ impl<T: GpuUniform> UniformBuffer<T> {
         }
     }
 
-    pub fn update(&self, queue: &wgpu::Queue, val: T) {
-        queue.write_buffer(&self.buffer, 0, bytemuck::cast_slice(&[val]));
-    }
-}
-
-impl<T: StageLockedUniform> UniformBuffer<T> {
     pub fn new_init(device: &wgpu::Device, init: T) -> Self {
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
@@ -148,10 +142,14 @@ impl<T: StageLockedUniform> UniformBuffer<T> {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
         Self {
-            stage: <T as StageLockedUniform>::FORCE_STAGE,
+            stage: T::STAGE,
             buffer,
             _marker: PhantomData,
         }
+    }
+
+    pub fn update(&self, queue: &wgpu::Queue, val: T) {
+        queue.write_buffer(&self.buffer, 0, bytemuck::cast_slice(&[val]));
     }
 }
 

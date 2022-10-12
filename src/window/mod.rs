@@ -164,7 +164,7 @@ impl WindowId {
     const PRIMARY_ID: usize = 0;
 
     pub fn new(id: usize) -> Self {
-        assert_ne!(id, 0);
+        assert_ne!(id, Self::PRIMARY_ID);
         Self(id)
     }
 

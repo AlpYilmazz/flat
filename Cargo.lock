@@ -852,6 +852,7 @@ dependencies = [
  "rand_pcg",
  "raw-window-handle",
  "repr-trait",
+ "smallvec",
  "tobj",
  "wgpu",
  "winit",

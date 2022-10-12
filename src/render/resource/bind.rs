@@ -97,8 +97,13 @@ where
     }
 }
 
+pub trait ManyBindingSet<const N: usize> {
+    fn into_layouts(&self, device: &wgpu::Device) -> [wgpu::BindGroupLayout; N];
+    fn into_bind_groups(&self, device: &wgpu::Device) -> [wgpu::BindGroup; N];
+}
+
 macro_rules! impl_binding_set_tuple {
-    ($(($ind: literal,$param: ident)),*) => {
+    ($count:literal,$(($ind: literal,$param: ident)),*) => {
         #[allow(non_snake_case)]
         impl<$($param: Binding),*> BindingSet for ($(&$param,)*) {
             fn layout_desc(&self) -> BindingSetLayoutDescriptor {
@@ -145,15 +150,36 @@ macro_rules! impl_binding_set_tuple {
                 bind_group
             }
         }
+        
+        #[allow(non_snake_case)]
+        impl<$($param: BindingSet),*> ManyBindingSet<$count> for ($($param,)*) {
+            fn into_layouts(&self, device: &wgpu::Device) -> [wgpu::BindGroupLayout; $count] {
+                let ($($param,)*) = self;
+                [
+                    $(
+                        $param.bind_group_layout(device),
+                    )*
+                ]
+            }
+
+            fn into_bind_groups(&self, device: &wgpu::Device) -> [wgpu::BindGroup; $count] {
+                let ($($param,)*) = self;
+                [
+                    $(
+                        $param.into_bind_group(device),
+                    )*
+                ]
+            }
+        }
     };
 }
 
-impl_binding_set_tuple!((0, B0));
-impl_binding_set_tuple!((0, B0), (1, B1));
-impl_binding_set_tuple!((0, B0), (1, B1), (2, B2));
-impl_binding_set_tuple!((0, B0), (1, B1), (2, B2), (3, B3));
-impl_binding_set_tuple!((0, B0), (1, B1), (2, B2), (3, B3), (4, B4));
-impl_binding_set_tuple!((0, B0), (1, B1), (2, B2), (3, B3), (4, B4), (5, B5));
+impl_binding_set_tuple!(1, (0, B0));
+impl_binding_set_tuple!(2, (0, B0), (1, B1));
+impl_binding_set_tuple!(3, (0, B0), (1, B1), (2, B2));
+impl_binding_set_tuple!(4, (0, B0), (1, B1), (2, B2), (3, B3));
+impl_binding_set_tuple!(5, (0, B0), (1, B1), (2, B2), (3, B3), (4, B4));
+impl_binding_set_tuple!(6, (0, B0), (1, B1), (2, B2), (3, B3), (4, B4), (5, B5));
 
 
 #[allow(unused)]
@@ -163,7 +189,10 @@ mod tests {
     use cgmath::*;
     use repr_trait::C;
 
-    use crate::{texture::Texture, render::resource::uniform::{UpdateGpuUniform, StageLockedUniform, GpuUniform, Uniform}};
+    use crate::{
+        render::resource::uniform::{GpuUniform, Uniform, HandleGpuUniform},
+        texture::Texture,
+    };
 
     use super::*;
 
@@ -171,7 +200,7 @@ mod tests {
         pub view_matrix: Matrix4<f32>,
         pub projection_matrix: Matrix4<f32>,
     }
-    impl UpdateGpuUniform for Camera {
+    impl HandleGpuUniform for Camera {
         type GU = CameraUniform;
 
         fn update_uniform(&self, gpu_uniform: &mut Self::GU) {
@@ -192,9 +221,8 @@ mod tests {
     pub struct CameraUniform {
         pub view_proj: [[f32; 4]; 4],
     }
-    impl GpuUniform for CameraUniform {}
-    impl StageLockedUniform for CameraUniform {
-        const FORCE_STAGE: wgpu::ShaderStages = wgpu::ShaderStages::VERTEX;
+    impl GpuUniform for CameraUniform {
+        const STAGE: wgpu::ShaderStages = wgpu::ShaderStages::VERTEX;
     }
     impl Default for CameraUniform {
         fn default() -> Self {
@@ -209,7 +237,7 @@ mod tests {
         pub scale: Vector3<f32>,
         pub rotation: Quaternion<f32>,
     }
-    impl UpdateGpuUniform for Transform {
+    impl HandleGpuUniform for Transform {
         type GU = ModelUniform;
 
         fn update_uniform(&self, gpu_uniform: &mut Self::GU) {
@@ -234,9 +262,8 @@ mod tests {
     pub struct ModelUniform {
         pub model: [[f32; 4]; 4],
     }
-    impl GpuUniform for ModelUniform {}
-    impl StageLockedUniform for ModelUniform {
-        const FORCE_STAGE: wgpu::ShaderStages = wgpu::ShaderStages::VERTEX;
+    impl GpuUniform for ModelUniform {
+        const STAGE: wgpu::ShaderStages = wgpu::ShaderStages::VERTEX;
     }
     impl Default for ModelUniform {
         fn default() -> Self {
@@ -261,7 +288,7 @@ mod tests {
             (self.r, self.g, self.b, self.a)
         }
     }
-    impl UpdateGpuUniform for Color {
+    impl HandleGpuUniform for Color {
         type GU = ColorUniform;
 
         fn update_uniform(&self, gpu_uniform: &mut Self::GU) {
@@ -279,7 +306,9 @@ mod tests {
     pub struct ColorUniform {
         pub color: [f32; 4],
     }
-    impl GpuUniform for ColorUniform {}
+    impl GpuUniform for ColorUniform {
+        const STAGE: wgpu::ShaderStages = wgpu::ShaderStages::FRAGMENT;
+    }
     impl Default for ColorUniform {
         fn default() -> Self {
             Self {
@@ -295,10 +324,8 @@ mod tests {
         let color = Color::from_tuple((0.5, 0.5, 0.0, 1.0));
 
         // Create uniforms
-        let mut camera_uniform: Uniform<Camera> =
-            Uniform::new_default(device);
-        let mut model_transform_uniform: Uniform<Transform> =
-            Uniform::new_default(device);
+        let mut camera_uniform: Uniform<Camera> = Uniform::new_default(device);
+        let mut model_transform_uniform: Uniform<Transform> = Uniform::new_default(device);
         let mut color_uniform: Uniform<Color> =
             Uniform::new_default_at(device, wgpu::ShaderStages::FRAGMENT);
 

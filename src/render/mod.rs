@@ -7,12 +7,14 @@ use bevy_ecs::{
     schedule::{StageLabel, SystemStage},
     system::{Commands, Query, Res, ResMut},
 };
-use wgpu::include_wgsl;
+use cgmath::{Deg, Quaternion, Rotation3, Vector3};
 use winit::dpi::PhysicalSize;
 
 use crate::{
+    shaders::{ShaderInstance, TestWgsl},
     texture,
-    util::{store, store_many, EngineDefault, Primary, Refer, ReferMany, Store},
+    transform::{GlobalTransform, Transform},
+    util::{store, store_many, EngineDefault, Primary, PrimaryEntity, Refer, ReferMany, Store},
     window::{
         events::{CreateWindow, WindowCreated, WindowResized},
         WindowDescriptor, WindowId, Windows, WinitWindows,
@@ -22,15 +24,11 @@ use crate::{
 use self::{
     camera::{Camera, PerspectiveCameraBundle, PerspectiveProjection},
     mesh::Mesh,
+    resource::shader::{ShaderSource, ShaderSourceLoader, Shaders},
     resource::{
-        bind::BindingSet,
-        shader::{ShaderSource, ShaderSourceLoader, Shaders},
-    },
-    resource::{
-        buffer::{MeshVertex, Vertex},
+        buffer::Vertex,
         pipeline::RenderPipeline,
-        shader::Shader,
-        uniform::{Uniform, UpdateGpuUniform},
+        uniform::{HandleGpuUniform, Uniform},
     },
     system::{AddRenderSystem, RenderAsset},
 };
@@ -159,7 +157,7 @@ fn test_create_primary_camera(device: Res<wgpu::Device>, mut commands: Commands)
     let camera_bundle = PerspectiveCameraBundle::new(&device);
     let primary_camera = commands.spawn().insert_bundle(camera_bundle).id();
 
-    commands.insert_resource(Primary::<Camera>::new(primary_camera));
+    commands.insert_resource(PrimaryEntity::<Camera>::new(primary_camera));
 }
 
 fn test_create_render_entity(
@@ -168,43 +166,37 @@ fn test_create_render_entity(
     mut bind_groups: ResMut<Store<wgpu::BindGroup>>,
     mut meshes: ResMut<Assets<Mesh<Vertex>>>,
     mut commands: Commands,
-    primary_camera: Res<Primary<Camera>>,
-    camera_query: Query<(Entity, &Uniform<Camera>)>,
+    primary_camera: Primary<Camera>,
+    camera_query: Query<&Uniform<Camera>>,
 ) {
-    let (_, camera_uniform) = camera_query
-        .iter()
-        .find(|(entity, _)| entity.eq(&primary_camera.entity))
-        .unwrap();
+    let camera_uniform = camera_query.get(primary_camera.entity()).unwrap();
 
-    let camera_bind = camera_uniform.as_ref().into_bind_group(&device);
+    let transform = Transform {
+        rotation: Quaternion::from_axis_angle(Vector3::unit_y(), Deg(45.0)),
+        ..Default::default()
+    };
+    let global_transform = GlobalTransform::from(transform);
+    let model_uniform: Uniform<GlobalTransform> =
+        Uniform::new(&device, global_transform.generate_uniform());
 
-    let pipeline = RenderPipeline::create_usual(
-        &device,
-        &[&camera_uniform.as_ref().bind_group_layout(&device)],
-        &Shader::from_with(
-            device.create_shader_module(include_wgsl!("../../res/test.wgsl")),
-            vec![Vertex::layout()],
-            vec![Some(wgpu::ColorTargetState {
-                format: wgpu::TextureFormat::engine_default(),
-                blend: Some(wgpu::BlendState::REPLACE),
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
-        ),
-        wgpu::PrimitiveTopology::TriangleList,
-        false,
-    );
+    let test_wgsl_binding_set = ((camera_uniform, &model_uniform),);
+    let test_wgsl_pipeline = TestWgsl::pipeline(&device, test_wgsl_binding_set);
+    let test_wgsl_binds = TestWgsl::bind_groups(&device, test_wgsl_binding_set);
 
     let cube_mesh = mesh::primitive::create_unit_cube();
 
-    let refer_pipeline = store(&mut pipelines, pipeline);
-    let refer_binds = store_many(&mut bind_groups, vec![camera_bind]);
+    let refer_pipeline = store(&mut pipelines, test_wgsl_pipeline);
+    let refer_binds = store_many(&mut bind_groups, test_wgsl_binds.into());
     let handle_cube_mesh = meshes.set(HandleId::random::<Mesh<Vertex>>(), cube_mesh);
 
-    commands.spawn_bundle(RenderEntityBundle {
-        pipeline: refer_pipeline,
-        bind_groups: refer_binds,
-        render_asset: handle_cube_mesh,
-    });
+    commands
+        .spawn_bundle(RenderEntityBundle {
+            pipeline: refer_pipeline,
+            bind_groups: refer_binds,
+            render_asset: handle_cube_mesh,
+        })
+        .insert(transform)
+        .insert(global_transform);
 }
 
 fn reconfigure_camera_aspect(
@@ -224,7 +216,7 @@ pub fn reconfigure_surface_system(
     device: Res<wgpu::Device>,
     queue: Res<wgpu::Queue>,
     mut surfaces: ResMut<Surfaces>,
-    primary_camera: Res<Primary<Camera>>,
+    primary_camera: Primary<Camera>,
     mut camera_query: Query<(
         Entity,
         &mut Camera,

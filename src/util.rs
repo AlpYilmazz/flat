@@ -5,7 +5,10 @@ use std::{
 };
 
 use bevy_asset::HandleId;
-use bevy_ecs::prelude::{Component, Entity};
+use bevy_ecs::{
+    prelude::{Component, Entity},
+    system::{Res, ResMut, Resource, SystemParam},
+};
 
 pub struct Store<T> {
     ind: usize,
@@ -23,7 +26,7 @@ impl<T> Default for Store<T> {
 
 impl<T> Store<T> {
     const PRIMARY_ID: usize = 0;
-    
+
     pub fn insert(&mut self, val: T) -> usize {
         self.inner.insert(self.ind, val);
         self.ind += 1;
@@ -75,6 +78,25 @@ impl<T> Deref for AssetStore<T> {
     }
 }
 impl<T> DerefMut for AssetStore<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+pub struct EntityStore<T>(pub HashMap<Entity, T>);
+impl<T> Default for EntityStore<T> {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
+impl<T> Deref for EntityStore<T> {
+    type Target = HashMap<Entity, T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl<T> DerefMut for EntityStore<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
@@ -136,17 +158,84 @@ pub fn store_many<T>(store: &mut Store<T>, mut vals: Vec<T>) -> ReferMany<T> {
     ReferMany::to(inds)
 }
 
-pub struct Primary<T> {
+pub struct PrimaryEntity<T> {
     pub entity: Entity,
     _marker: PhantomData<fn() -> T>,
 }
 
-impl<T> Primary<T> {
+impl<T> PrimaryEntity<T> {
     pub fn new(entity: Entity) -> Self {
         Self {
             entity,
             _marker: PhantomData,
         }
+    }
+}
+
+#[derive(SystemParam)]
+pub struct Primary<'w, 's, T: Resource> {
+    pub inner: Res<'w, PrimaryEntity<T>>,
+    #[system_param(ignore)]
+    _marker: PhantomData<&'s usize>,
+}
+
+impl<'w, 's, T: Resource> Primary<'w, 's, T> {
+    pub fn entity(&self) -> Entity {
+        self.entity
+    }
+}
+
+impl<'w, 's, T: Resource> Deref for Primary<'w, 's, T> {
+    type Target = Res<'w, PrimaryEntity<T>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl<'w, 's, T: Resource> AsRef<Entity> for Primary<'w, 's, T> {
+    #[inline]
+    fn as_ref(&self) -> &Entity {
+        &self.entity
+    }
+}
+
+#[derive(SystemParam)]
+pub struct PrimaryMut<'w, 's, T: Resource> {
+    pub inner: ResMut<'w, PrimaryEntity<T>>,
+    #[system_param(ignore)]
+    _marker: PhantomData<&'s usize>,
+}
+
+impl<'w, 's, T: Resource> PrimaryMut<'w, 's, T> {
+    pub fn entity(&self) -> Entity {
+        self.entity
+    }
+}
+
+impl<'w, 's, T: Resource> Deref for PrimaryMut<'w, 's, T> {
+    type Target = ResMut<'w, PrimaryEntity<T>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+impl<'w, 's, T: Resource> DerefMut for PrimaryMut<'w, 's, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
+impl<'w, 's, T: Resource> AsRef<Entity> for PrimaryMut<'w, 's, T> {
+    #[inline]
+    fn as_ref(&self) -> &Entity {
+        &self.entity
+    }
+}
+impl<'w, 's, T: Resource> AsMut<Entity> for PrimaryMut<'w, 's, T> {
+    #[inline]
+    fn as_mut(&mut self) -> &mut Entity {
+        &mut self.entity
     }
 }
 

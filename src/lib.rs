@@ -2,17 +2,21 @@ use asset::FlatAssetPlugin;
 use bevy_app::{CoreStage, Plugin, PluginGroup};
 use input::FlatInputPlugin;
 use render::FlatRenderPlugin;
-use window::{FlatWindowPlugin, FlatWinitPlugin, ExitOnWindowClose};
+use transform::FlatTransformPlugin;
+use window::{ExitOnWindowClose, FlatWindowPlugin, FlatWinitPlugin};
 
 // pub mod legacy;
 pub mod misc;
-pub mod render;
 pub mod text;
 pub mod texture;
 pub mod util;
 
 pub mod asset;
 pub mod input;
+pub mod hierarchy;
+pub mod render;
+pub mod shaders;
+pub mod transform;
 pub mod window;
 
 /*
@@ -45,6 +49,7 @@ impl PluginGroup for FlatEngineCore {
     fn build(&mut self, group: &mut bevy_app::PluginGroupBuilder) {
         group
             .add(FlatCorePlugin)
+            .add(FlatTransformPlugin)
             .add(FlatInputPlugin)
             .add(FlatAssetPlugin)
             .add(FlatWindowPlugin)

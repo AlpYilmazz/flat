@@ -133,7 +133,7 @@ pub fn execute_window_commands(world: &mut World) {
     }
 }
 
-pub fn run_return<F>(mut event_loop: EventLoop<()>, event_handler: F)
+pub fn run_return<F>(event_loop: &mut EventLoop<()>, event_handler: F)
 where
     F: 'static + FnMut(Event<'_, ()>, &EventLoopWindowTarget<()>, &mut ControlFlow),
 {
@@ -154,7 +154,7 @@ pub struct WinitSettings {
 }
 
 pub fn winit_event_loop_runner(mut app: bevy_app::App) {
-    let event_loop = app
+    let mut event_loop = app
         .world
         .remove_non_send_resource::<EventLoop<()>>()
         .unwrap();
@@ -322,7 +322,7 @@ pub fn winit_event_loop_runner(mut app: bevy_app::App) {
     };
 
     if winit_settings.run_return {
-        run_return(event_loop, event_handler);
+        run_return(&mut event_loop, event_handler);
         println!("App Exited");
     }
     else {

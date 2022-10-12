@@ -3,7 +3,7 @@ use bytemuck::{Pod, Zeroable};
 use cgmath::*;
 use repr_trait::C;
 
-use super::resource::uniform::{GpuUniform, StageLockedUniform, Uniform, UpdateGpuUniform};
+use super::resource::uniform::{GpuUniform, Uniform, HandleGpuUniform};
 
 #[derive(Bundle)]
 pub struct PerspectiveCameraBundle {
@@ -44,7 +44,7 @@ pub struct Camera {
     pub view_matrix: Matrix4<f32>,
     pub projection_matrix: Matrix4<f32>,
 }
-impl UpdateGpuUniform for Camera {
+impl HandleGpuUniform for Camera {
     type GU = CameraUniform;
 
     fn update_uniform(&self, gpu_uniform: &mut Self::GU) {
@@ -66,9 +66,8 @@ impl Default for Camera {
 pub struct CameraUniform {
     pub view_proj: [[f32; 4]; 4],
 }
-impl GpuUniform for CameraUniform {}
-impl StageLockedUniform for CameraUniform {
-    const FORCE_STAGE: wgpu::ShaderStages = wgpu::ShaderStages::VERTEX;
+impl GpuUniform for CameraUniform {
+    const STAGE: wgpu::ShaderStages = wgpu::ShaderStages::VERTEX;
 }
 impl Default for CameraUniform {
     fn default() -> Self {
