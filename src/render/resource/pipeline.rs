@@ -1,4 +1,14 @@
+use wgpu::ColorTargetState;
+
 use super::shader;
+
+pub struct RenderPipelineDescriptorReduced<'a> {
+    pub bind_group_layouts: &'a [&'a wgpu::BindGroupLayout],
+    pub shader_path: &'a str,
+    pub vertex_buffers: &'a [wgpu::VertexBufferLayout<'a>],
+    pub fragment_targets: &'a [Option<ColorTargetState>],
+    pub primitive_topology: wgpu::PrimitiveTopology,
+}
 
 pub struct RenderPipeline(pub wgpu::RenderPipeline);
 
@@ -50,8 +60,7 @@ impl RenderPipeline {
                     stencil: wgpu::StencilState::default(),     // 2.
                     bias: wgpu::DepthBiasState::default(),
                 })
-            }
-            else {
+            } else {
                 None
             },
             multisample: wgpu::MultisampleState {

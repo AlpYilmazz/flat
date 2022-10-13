@@ -21,7 +21,7 @@ struct VertexOutput {
 
 @group(0) @binding(0)
 var<uniform> camera: CameraUniform;
-@group(0) @binding(1)
+@group(1) @binding(0)
 var<uniform> model: Model;
 
 @vertex

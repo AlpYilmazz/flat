@@ -10,9 +10,14 @@ use bevy_ecs::{
     system::{Res, ResMut, Resource, SystemParam},
 };
 
+// TODO: Maybe change to Vec
+//       Vec -> more cache friendly, worse removal
+//       HashMap -> not cache friendly, better removal
 pub struct Store<T> {
     ind: usize,
-    pub inner: HashMap<usize, T>,
+    inner: HashMap<usize, T>,
+    // primary: Option<T>,
+    // inner: Vec<T>,
 }
 
 impl<T> Default for Store<T> {
@@ -34,6 +39,10 @@ impl<T> Store<T> {
         self.ind - 1
     }
 
+    pub fn contains_key(&self, key: usize) -> bool {
+        self.inner.contains_key(&key)
+    }
+
     pub fn get(&self, key: usize) -> Option<&T> {
         self.inner.get(&key)
     }
@@ -49,6 +58,10 @@ impl<T> Store<T> {
     pub fn insert_primary(&mut self, val: T) -> usize {
         self.inner.insert(Self::PRIMARY_ID, val);
         Self::PRIMARY_ID
+    }
+
+    pub fn contains_primary(&self) -> bool {
+        self.inner.contains_key(&Self::PRIMARY_ID)
     }
 
     pub fn get_primary(&self) -> Option<&T> {
@@ -109,6 +122,11 @@ impl<T> Refer<T> {
         Self(ind, PhantomData)
     }
 }
+impl<T> Clone for Refer<T> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone(), PhantomData)
+    }
+}
 impl<T> Deref for Refer<T> {
     type Target = usize;
 
@@ -127,6 +145,11 @@ pub struct ReferMany<T>(Vec<usize>, PhantomData<fn() -> T>);
 impl<T> ReferMany<T> {
     pub fn to(inds: Vec<usize>) -> Self {
         Self(inds, PhantomData)
+    }
+}
+impl<T> Clone for ReferMany<T> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone(), PhantomData)
     }
 }
 impl<T> Deref for ReferMany<T> {
@@ -180,7 +203,7 @@ pub struct Primary<'w, 's, T: Resource> {
 }
 
 impl<'w, 's, T: Resource> Primary<'w, 's, T> {
-    pub fn entity(&self) -> Entity {
+    pub fn get(&self) -> Entity {
         self.entity
     }
 }
@@ -248,3 +271,8 @@ impl EngineDefault for wgpu::TextureFormat {
         wgpu::TextureFormat::Bgra8UnormSrgb
     }
 }
+
+pub trait Sink: Sized {
+    fn sink(self) {}
+}
+impl<T: Sized> Sink for T {}

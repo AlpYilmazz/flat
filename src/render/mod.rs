@@ -4,7 +4,7 @@ use bevy_app::{App, CoreStage, Plugin, StartupStage};
 use bevy_asset::{AddAsset, Assets, Handle, HandleId};
 use bevy_ecs::{
     prelude::{Bundle, Component, Entity, EventReader, EventWriter},
-    schedule::{StageLabel, SystemStage},
+    schedule::{ParallelSystemDescriptorCoercion, StageLabel, SystemLabel, SystemStage},
     system::{Commands, Query, Res, ResMut},
 };
 use cgmath::{Deg, Quaternion, Rotation3, Vector3};
@@ -14,7 +14,7 @@ use crate::{
     shaders::{ShaderInstance, TestWgsl},
     texture,
     transform::{GlobalTransform, Transform},
-    util::{store, store_many, EngineDefault, Primary, PrimaryEntity, Refer, ReferMany, Store},
+    util::{store, AssetStore, EngineDefault, Primary, PrimaryEntity, Refer, Store},
     window::{
         events::{CreateWindow, WindowCreated, WindowResized},
         WindowDescriptor, WindowId, Windows, WinitWindows,
@@ -22,14 +22,10 @@ use crate::{
 };
 
 use self::{
-    camera::{Camera, PerspectiveCameraBundle, PerspectiveProjection},
+    camera::{Camera, FlatCameraPlugin, PerspectiveCameraBundle, PerspectiveProjection, Visible},
     mesh::Mesh,
     resource::shader::{ShaderSource, ShaderSourceLoader, Shaders},
-    resource::{
-        buffer::Vertex,
-        pipeline::RenderPipeline,
-        uniform::{HandleGpuUniform, Uniform},
-    },
+    resource::{buffer::Vertex, pipeline::RenderPipeline},
     system::{AddRenderSystem, RenderAsset},
 };
 
@@ -45,6 +41,9 @@ pub enum RenderStage {
     Extract,
     Render,
 }
+
+#[derive(SystemLabel)]
+pub struct SurfaceReconfigure;
 
 pub struct FlatRenderPlugin;
 impl Plugin for FlatRenderPlugin {
@@ -66,19 +65,26 @@ impl Plugin for FlatRenderPlugin {
         )
         .init_resource::<Surfaces>()
         .init_resource::<Store<RenderPipeline>>()
+        .init_resource::<AssetStore<Refer<RenderPipeline>>>()
         .init_resource::<Store<wgpu::BindGroup>>()
         .init_resource::<Shaders>()
         .add_asset_loader(ShaderSourceLoader)
         .add_asset::<ShaderSource>()
         .add_system_to_stage(CoreStage::PreUpdate, create_surface_system)
-        .add_system_to_stage(RenderStage::Prepare, reconfigure_surface_system)
+        .add_system_to_stage(
+            RenderStage::Prepare,
+            reconfigure_surface_system.label(SurfaceReconfigure),
+        )
         .add_render_system::<Mesh<Vertex>>();
 
         create_wgpu_resources(app);
 
-        app.add_startup_system_to_stage(StartupStage::PreStartup, test_create_primary_camera)
-            .add_startup_system(test_create_render_entity)
-            .add_startup_system(test_create_more_windows);
+        app.add_startup_system_to_stage(StartupStage::PreStartup, test_create_pipeline_test_wgsl)
+            .add_startup_system_to_stage(StartupStage::PreStartup, test_create_primary_camera)
+            .add_startup_system(test_create_render_entity);
+        // .add_startup_system(test_create_more_windows);
+
+        app.add_plugin(FlatCameraPlugin);
     }
 }
 
@@ -98,8 +104,18 @@ pub struct Surfaces(pub HashMap<WindowId, SurfaceKit>);
 #[derive(Bundle)]
 pub struct RenderEntityBundle<T: RenderAsset> {
     pub pipeline: Refer<RenderPipeline>,
-    pub bind_groups: ReferMany<wgpu::BindGroup>,
+    pub render_camera: RenderCamera,
+    pub global_transform: GlobalTransform,
+    pub transform: Transform,
     pub render_asset: Handle<T>,
+}
+
+#[derive(Debug, Clone, Component)]
+pub struct RenderCamera(pub Entity);
+impl RenderCamera {
+    pub fn get(&self) -> Entity {
+        self.0
+    }
 }
 
 ///
@@ -153,76 +169,60 @@ fn test_create_more_windows(
     });
 }
 
-fn test_create_primary_camera(device: Res<wgpu::Device>, mut commands: Commands) {
-    let camera_bundle = PerspectiveCameraBundle::new(&device);
+fn test_create_pipeline_test_wgsl(
+    device: Res<wgpu::Device>,
+    mut render_pipelines: ResMut<Store<RenderPipeline>>,
+    mut refer_pipelines: ResMut<AssetStore<Refer<RenderPipeline>>>,
+) {
+    let handle_id = HandleId::from("test.wgsl");
+    let refer = store(&mut render_pipelines, TestWgsl::pipeline(&device));
+    refer_pipelines.insert(handle_id, refer);
+}
+
+fn test_create_primary_camera(mut commands: Commands) {
+    let camera_bundle = PerspectiveCameraBundle::new(WindowId::primary()); // Primary Window
     let primary_camera = commands.spawn().insert_bundle(camera_bundle).id();
 
     commands.insert_resource(PrimaryEntity::<Camera>::new(primary_camera));
 }
 
+#[derive(Component)]
+pub struct Player;
+
 fn test_create_render_entity(
-    device: Res<wgpu::Device>,
-    mut pipelines: ResMut<Store<RenderPipeline>>,
-    mut bind_groups: ResMut<Store<wgpu::BindGroup>>,
-    mut meshes: ResMut<Assets<Mesh<Vertex>>>,
     mut commands: Commands,
     primary_camera: Primary<Camera>,
-    camera_query: Query<&Uniform<Camera>>,
+    mut meshes: ResMut<Assets<Mesh<Vertex>>>,
+    pipelines: Res<AssetStore<Refer<RenderPipeline>>>,
 ) {
-    let camera_uniform = camera_query.get(primary_camera.entity()).unwrap();
+    let pipeline = pipelines.get(&HandleId::from("test.wgsl")).unwrap().clone();
+    let render_camera = RenderCamera(primary_camera.get());
 
     let transform = Transform {
         rotation: Quaternion::from_axis_angle(Vector3::unit_y(), Deg(45.0)),
         ..Default::default()
     };
     let global_transform = GlobalTransform::from(transform);
-    let model_uniform: Uniform<GlobalTransform> =
-        Uniform::new(&device, global_transform.generate_uniform());
-
-    let test_wgsl_binding_set = ((camera_uniform, &model_uniform),);
-    let test_wgsl_pipeline = TestWgsl::pipeline(&device, test_wgsl_binding_set);
-    let test_wgsl_binds = TestWgsl::bind_groups(&device, test_wgsl_binding_set);
 
     let cube_mesh = mesh::primitive::create_unit_cube();
-
-    let refer_pipeline = store(&mut pipelines, test_wgsl_pipeline);
-    let refer_binds = store_many(&mut bind_groups, test_wgsl_binds.into());
     let handle_cube_mesh = meshes.set(HandleId::random::<Mesh<Vertex>>(), cube_mesh);
 
     commands
         .spawn_bundle(RenderEntityBundle {
-            pipeline: refer_pipeline,
-            bind_groups: refer_binds,
+            pipeline,
+            render_camera,
+            global_transform,
+            transform,
             render_asset: handle_cube_mesh,
         })
-        .insert(transform)
-        .insert(global_transform);
-}
-
-fn reconfigure_camera_aspect(
-    queue: &wgpu::Queue,
-    camera: &mut Camera,
-    camera_uniform: &mut Uniform<Camera>,
-    perspective_projection: &mut PerspectiveProjection,
-    new_size: &PhysicalSize<u32>,
-) {
-    perspective_projection.aspect = new_size.width as f32 / new_size.height as f32;
-    camera.projection_matrix = perspective_projection.build_projection_matrix();
-    camera.update_uniform(&mut camera_uniform.gpu_uniform);
-    camera_uniform.sync_buffer(queue);
+        .insert(Visible)
+        .insert(Player);
 }
 
 pub fn reconfigure_surface_system(
     device: Res<wgpu::Device>,
-    queue: Res<wgpu::Queue>,
     mut surfaces: ResMut<Surfaces>,
-    primary_camera: Primary<Camera>,
-    mut camera_query: Query<(
-        Entity,
-        &mut Camera,
-        &mut PerspectiveProjection,
-        &mut Uniform<Camera>,
-    )>,
+    mut camera_query: Query<(&Camera, &mut PerspectiveProjection)>,
     mut window_resize_events: EventReader<WindowResized>,
 ) {
     for WindowResized {
@@ -241,18 +241,10 @@ pub fn reconfigure_surface_system(
             surface.configure(&device, config);
             println!("Reconfigured");
 
-            if window_id.is_primary() {
-                let (_, mut camera, mut perspective_projection, mut camera_uniform) = camera_query
-                    .iter_mut()
-                    .find(|(entity, _, _, _)| entity.eq(&primary_camera.entity))
-                    .unwrap();
-                reconfigure_camera_aspect(
-                    &queue,
-                    &mut camera,
-                    &mut camera_uniform,
-                    &mut perspective_projection,
-                    &new_size,
-                )
+            for (camera, mut perspective_projection) in camera_query.iter_mut() {
+                if camera.render_window.eq(window_id) {
+                    perspective_projection.aspect = new_size.width as f32 / new_size.height as f32;
+                }
             }
         }
     }

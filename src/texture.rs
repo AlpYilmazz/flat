@@ -1,7 +1,7 @@
 use anyhow::*;
 use image::GenericImageView;
 
-use crate::render::resource::bind::{AsBindingSet, Binding, BindingLayoutEntry, IntoBindingSet};
+use crate::render::resource::bind::{AsBindingSet, Binding, BindingLayoutEntry, IntoBindingSet, BindingDesc, AsBindingSetDesc, IntoBindingSetDesc};
 
 pub enum PixelFormat {
     G8,
@@ -190,6 +190,16 @@ impl Texture {
 }
 
 impl Binding for wgpu::TextureView {
+    type Desc = TextureViewDesc;
+
+    fn get_resource<'a>(&'a self) -> wgpu::BindingResource<'a> {
+        wgpu::BindingResource::TextureView(self)
+    }
+}
+
+#[derive(Default)]
+pub struct TextureViewDesc {}
+impl BindingDesc for TextureViewDesc {
     fn get_layout_entry(&self) -> BindingLayoutEntry {
         BindingLayoutEntry {
             visibility: wgpu::ShaderStages::FRAGMENT,
@@ -201,13 +211,19 @@ impl Binding for wgpu::TextureView {
             count: None,
         }
     }
+} 
+
+impl Binding for wgpu::Sampler {
+    type Desc = SamplerDesc;
 
     fn get_resource<'a>(&'a self) -> wgpu::BindingResource<'a> {
-        wgpu::BindingResource::TextureView(self)
+        wgpu::BindingResource::Sampler(self)
     }
 }
 
-impl Binding for wgpu::Sampler {
+#[derive(Default)]
+pub struct SamplerDesc {}
+impl BindingDesc for SamplerDesc {
     fn get_layout_entry(&self) -> BindingLayoutEntry {
         BindingLayoutEntry {
             visibility: wgpu::ShaderStages::FRAGMENT,
@@ -215,11 +231,7 @@ impl Binding for wgpu::Sampler {
             count: None,
         }
     }
-
-    fn get_resource<'a>(&'a self) -> wgpu::BindingResource<'a> {
-        wgpu::BindingResource::Sampler(self)
-    }
-}
+} 
 
 impl<'a> AsBindingSet<'a> for Texture {
     type Set = (&'a wgpu::TextureView, &'a wgpu::Sampler);
@@ -232,6 +244,25 @@ impl<'a> IntoBindingSet for &'a Texture {
     type Set = (&'a wgpu::TextureView, &'a wgpu::Sampler);
 
     fn into_binding_set(self) -> Self::Set {
+        (&self.view, &self.sampler)
+    }
+}
+
+pub struct TextureDesc {
+    pub view: TextureViewDesc,
+    pub sampler: SamplerDesc,
+}
+impl<'a> AsBindingSetDesc<'a> for TextureDesc {
+    type SetDesc = (&'a TextureViewDesc, &'a SamplerDesc);
+
+    fn as_binding_set(&'a self) -> Self::SetDesc {
+        (&self.view, &self.sampler)
+    }
+}
+impl<'a> IntoBindingSetDesc for &'a TextureDesc {
+    type SetDesc = (&'a TextureViewDesc, &'a SamplerDesc);
+
+    fn into_binding_set(self) -> Self::SetDesc {
         (&self.view, &self.sampler)
     }
 }

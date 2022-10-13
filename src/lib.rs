@@ -38,8 +38,7 @@ pub struct FlatEngineComplete;
 
 impl PluginGroup for FlatEngineComplete {
     fn build(&mut self, group: &mut bevy_app::PluginGroupBuilder) {
-        let mut flat_engine_core = FlatEngineCore;
-        flat_engine_core.build(group);
+        FlatEngineCore.build(group);
     }
 }
 

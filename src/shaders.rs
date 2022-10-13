@@ -2,16 +2,16 @@
 
 use crate::{
     render::{
-        camera::Camera,
+        camera::CameraUniform,
         resource::{
-            bind::ManyBindingSet,
+            bind::BindingSetDesc,
             buffer::{MeshVertex, Vertex},
             pipeline::RenderPipeline,
             shader::Shader,
-            uniform::Uniform,
+            uniform::UniformDesc,
         },
     },
-    transform::GlobalTransform,
+    transform::ModelMatrix,
     util::EngineDefault,
 };
 
@@ -26,27 +26,35 @@ use crate::{
 //     };
 // }
 
-pub trait ShaderInstance<'a, const N: usize> {
-    type BindingSets: ManyBindingSet<N>;
+pub trait ShaderInstance {
+    // type BindingSets: ManyBindingSet<N>;
 
-    fn pipeline(device: &wgpu::Device, binds: Self::BindingSets) -> RenderPipeline;
-    fn layouts(device: &wgpu::Device, binds: Self::BindingSets) -> [wgpu::BindGroupLayout; N] {
-        binds.into_layouts(device)
-    }
-    fn bind_groups(device: &wgpu::Device, binds: Self::BindingSets) -> [wgpu::BindGroup; N] {
-        binds.into_bind_groups(device)
-    }
+    fn pipeline(device: &wgpu::Device) -> RenderPipeline;
+    // fn layouts(device: &wgpu::Device, binds: Self::BindingSets) -> [wgpu::BindGroupLayout; N] {
+    //     binds.into_layouts(device)
+    // }
+    // fn bind_groups(device: &wgpu::Device, binds: Self::BindingSets) -> [wgpu::BindGroup; N] {
+    //     binds.into_bind_groups(device)
+    // }
 }
 
 pub struct TestWgsl;
-impl<'a> ShaderInstance<'a, 1> for TestWgsl {
-    type BindingSets = ((&'a Uniform<Camera>, &'a Uniform<GlobalTransform>),);
+impl ShaderInstance for TestWgsl {
+    // type BindingSets = (&'a Uniform<Camera>, &'a Uniform<GlobalTransform>);
 
-    fn pipeline(device: &wgpu::Device, binds: Self::BindingSets) -> RenderPipeline {
-        let layouts = Self::layouts(device, binds);
+    fn pipeline(device: &wgpu::Device) -> RenderPipeline {
+        // let [camera_layout, model_layout] = Self::layouts(device, binds);
+
+        let camera_layout = UniformDesc::<CameraUniform>::default()
+            .as_ref()
+            .bind_group_layout(device);
+        let model_layout = UniformDesc::<ModelMatrix>::default()
+            .as_ref()
+            .bind_group_layout(device);
+
         RenderPipeline::create_usual(
             &device,
-            &[&layouts[0]],
+            &[&camera_layout, &model_layout],
             &Shader::from_with(
                 device.create_shader_module(wgpu::include_wgsl!("../res/test.wgsl")),
                 vec![Vertex::layout()],
