@@ -1,7 +1,36 @@
 use anyhow::*;
-use image::GenericImageView;
+use bevy_asset::{AssetLoader, LoadedAsset};
+use bevy_reflect::TypeUuid;
+use image::{DynamicImage, GenericImageView};
 
-use crate::render::resource::bind::{AsBindingSet, Binding, BindingLayoutEntry, IntoBindingSet, BindingDesc, AsBindingSetDesc, IntoBindingSetDesc};
+use crate::render::resource::bind::{
+    AsBindingSet, AsBindingSetDesc, Binding, BindingDesc, BindingLayoutEntry, IntoBindingSet,
+    IntoBindingSetDesc,
+};
+
+#[derive(TypeUuid)]
+#[uuid = "3F897E85-62CE-4B2C-A957-FCF0CCE649FD"]
+pub struct Image(pub DynamicImage);
+
+pub struct ImageLoader;
+impl AssetLoader for ImageLoader {
+    fn load<'a>(
+        &'a self,
+        bytes: &'a [u8],
+        load_context: &'a mut bevy_asset::LoadContext,
+    ) -> bevy_asset::BoxedFuture<'a, Result<(), Error>> {
+        Box::pin(async {
+            let img = image::load_from_memory(bytes)?;
+            load_context.set_default_asset(LoadedAsset::new(Image(img)));
+
+            Ok(())
+        })
+    }
+
+    fn extensions(&self) -> &[&str] {
+        &["png", "jpg", "jpeg"]
+    }
+}
 
 pub enum PixelFormat {
     G8,
@@ -146,7 +175,7 @@ impl Texture {
     pub fn create_depth_texture(
         device: &wgpu::Device,
         config: &wgpu::SurfaceConfiguration,
-        label: &str,
+        label: Option<&str>,
     ) -> Self {
         let size = wgpu::Extent3d {
             // 2.
@@ -155,7 +184,7 @@ impl Texture {
             depth_or_array_layers: 1,
         };
         let desc = wgpu::TextureDescriptor {
-            label: Some(label),
+            label,
             size,
             mip_level_count: 1,
             sample_count: 1,
@@ -211,7 +240,7 @@ impl BindingDesc for TextureViewDesc {
             count: None,
         }
     }
-} 
+}
 
 impl Binding for wgpu::Sampler {
     type Desc = SamplerDesc;
@@ -231,7 +260,7 @@ impl BindingDesc for SamplerDesc {
             count: None,
         }
     }
-} 
+}
 
 impl<'a> AsBindingSet<'a> for Texture {
     type Set = (&'a wgpu::TextureView, &'a wgpu::Sampler);

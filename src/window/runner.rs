@@ -15,7 +15,7 @@ use super::{
     commands::{WindowCommands, WindowMode},
     events::{
         CreateWindow, CursorEntered, CursorLeft, FocusChanged, RequestRedraw, WindowCreated,
-        WindowResized,
+        WindowResized, CloseWindow,
     },
     util, Windows, WinitWindows, ExitOnWindowClose,
 };
@@ -175,7 +175,7 @@ pub fn winit_event_loop_runner(mut app: bevy_app::App) {
             } => {
                 let world = app.world.cell();
                 let mut windows = world.get_resource_mut::<Windows>().unwrap();
-                let mut winit_windows = world.get_resource_mut::<WinitWindows>().unwrap();
+                let winit_windows = world.get_resource_mut::<WinitWindows>().unwrap();
                 let window_id = winit_windows
                     .winit_to_lib
                     .get(&winit_window_id)
@@ -199,11 +199,9 @@ pub fn winit_event_loop_runner(mut app: bevy_app::App) {
                                 *control_flow = ControlFlow::Exit;
                             },
                             ExitOnWindowClose::Primary | ExitOnWindowClose::All => {
-                                winit_windows.map.remove(&window_id);
-                                windows.map.remove(&window_id);
-                                if windows.map.is_empty() {
-                                    *control_flow = ControlFlow::Exit;
-                                }
+                                let mut close_window_events = 
+                                    world.get_resource_mut::<Events<CloseWindow>>().unwrap();
+                                    close_window_events.send(CloseWindow { id: window_id });
                             },
                         }
                     },

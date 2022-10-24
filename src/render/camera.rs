@@ -2,9 +2,8 @@ use std::collections::HashMap;
 
 use bevy_app::{App, Plugin};
 use bevy_ecs::{
-    prelude::{Bundle, Component, Entity},
+    prelude::{Bundle, Component, Entity, EventReader},
     query::{Added, Changed, Or},
-    schedule::ParallelSystemDescriptorCoercion,
     system::{Query, RemovedComponents, Res, ResMut},
 };
 use bytemuck::{Pod, Zeroable};
@@ -14,7 +13,7 @@ use repr_trait::C;
 use crate::{
     render::resource::uniform::UniformDesc,
     util::{store, Refer, Sink, Store},
-    window::WindowId,
+    window::{events::WindowResized, WindowId},
 };
 
 use super::{
@@ -22,17 +21,15 @@ use super::{
         bind::BindingSet,
         uniform::{GpuUniform, HandleGpuUniform, Uniform},
     },
-    RenderStage, SurfaceReconfigure,
+    RenderStage,
 };
 
-pub struct FlatCameraPlugin;
-impl Plugin for FlatCameraPlugin {
+pub struct RenderCameraPlugin;
+impl Plugin for RenderCameraPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ExtractedCameras>()
-            .add_system_to_stage(
-                RenderStage::Prepare,
-                reconfigure_cameras.after(SurfaceReconfigure),
-            )
+            .add_system_to_stage(RenderStage::Prepare, reconfigure_perspective_on_resize)
+            .add_system_to_stage(RenderStage::Prepare, reconfigure_cameras)
             .add_system_to_stage(RenderStage::Extract, extract_cameras);
     }
 }
@@ -82,6 +79,25 @@ fn extract_cameras(
     removed
         .iter()
         .for_each(|entity| extracted_cameras.remove(&entity).sink());
+}
+
+pub fn reconfigure_perspective_on_resize(
+    mut camera_query: Query<(&Camera, &mut PerspectiveProjection)>,
+    mut window_resize_events: EventReader<WindowResized>,
+) {
+    for WindowResized {
+        id: window_id,
+        new_size,
+    } in window_resize_events.iter()
+    {
+        if new_size.width > 0 && new_size.height > 0 {
+            for (camera, mut perspective_projection) in camera_query.iter_mut() {
+                if camera.render_window.eq(window_id) {
+                    perspective_projection.aspect = new_size.width as f32 / new_size.height as f32;
+                }
+            }
+        }
+    }
 }
 
 pub fn reconfigure_cameras(

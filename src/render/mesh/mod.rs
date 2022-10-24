@@ -7,6 +7,7 @@ use super::{
     system::{RenderAsset, RenderEntity},
 };
 
+pub mod extend;
 pub mod primitive;
 pub mod util;
 
@@ -161,6 +162,12 @@ impl<V: MeshVertex> Mesh<V> {
     }
 }
 
+impl<V: MeshVertex> AsRef<Self> for Mesh<V> {
+    fn as_ref(&self) -> &Self {
+        self
+    }
+}
+
 #[derive(TypeUuid)]
 #[uuid = "ED280816-E404-444A-A2D9-FFD2D171F928"]
 pub struct BatchMesh<V: MeshVertex> {
@@ -217,8 +224,8 @@ impl<V: MeshVertex> BatchMesh<V> {
     }
 }
 
-impl<'a, V: MeshVertex> Into<&'a Mesh<V>> for &'a BatchMesh<V> {
-    fn into(self) -> &'a Mesh<V> {
+impl<V: MeshVertex> AsRef<Mesh<V>> for BatchMesh<V> {
+    fn as_ref(&self) -> &Mesh<V> {
         &self.inner_mesh
     }
 }
@@ -243,12 +250,12 @@ pub struct GpuMesh {
 }
 
 impl GpuMesh {
-    pub fn from_mesh<'a, V, M>(device: &wgpu::Device, mesh: M) -> GpuMesh
+    pub fn from_mesh<V, M>(device: &wgpu::Device, mesh: M) -> GpuMesh
     where
         V: MeshVertex,
-        M: Into<&'a Mesh<V>>,
+        M: AsRef<Mesh<V>>,
     {
-        let mesh: &Mesh<V> = mesh.into();
+        let mesh: &Mesh<V> = mesh.as_ref();
         GpuMesh {
             vertex_buffer_layout: mesh.get_vertex_buffer_layout(),
             vertex_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

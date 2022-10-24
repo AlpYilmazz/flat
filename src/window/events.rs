@@ -11,6 +11,14 @@ pub struct WindowCreated {
     pub id: WindowId,
 }
 
+pub struct CloseWindow {
+    pub id: WindowId,
+}
+
+pub struct WindowClosed {
+    pub id: WindowId,
+}
+
 pub struct WindowResized {
     pub id: WindowId,
     pub new_size: PhysicalSize<u32>,

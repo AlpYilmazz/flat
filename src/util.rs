@@ -127,6 +127,7 @@ impl<T> Clone for Refer<T> {
         Self(self.0.clone(), PhantomData)
     }
 }
+impl<T> Copy for Refer<T> {}
 impl<T> Deref for Refer<T> {
     type Target = usize;
 

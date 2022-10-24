@@ -65,7 +65,7 @@ impl ShaderInstance for TestWgsl {
                 })],
             ),
             wgpu::PrimitiveTopology::TriangleList,
-            false,
+            true,
         )
     }
 }

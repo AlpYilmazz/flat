@@ -1,17 +1,17 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, marker::PhantomData};
 
-use bevy_app::App;
-use bevy_asset::{AddAsset, Asset, AssetEvent, Assets, Handle};
+use bevy_app::{App, Plugin};
+use bevy_asset::{AddAsset, Asset, AssetEvent, Assets, Handle, HandleId};
 use bevy_ecs::{
-    prelude::{Entity, EventReader},
+    prelude::{Component, Entity, EventReader},
     query::{Added, Changed, Or, With},
-    system::{Query, RemovedComponents, Res, ResMut},
+    system::{Commands, Query, RemovedComponents, Res, ResMut},
 };
 
 use crate::{
     render::resource::{bind::BindingSet, uniform::UniformDesc},
     transform::GlobalTransform,
-    util::{store, AssetStore, Refer, Store, Sink},
+    util::{store, AssetStore, Refer, Sink, Store},
 };
 
 use super::{
@@ -20,21 +20,99 @@ use super::{
         pipeline::RenderPipeline,
         uniform::{HandleGpuUniform, Uniform},
     },
-    DepthTexture, InstanceData, RenderCamera, RenderStage, SurfaceKit, Surfaces,
+    DepthTextures, InstanceData, RenderCamera, RenderStage, SurfaceKit, Surfaces,
 };
 
+pub trait AddExtractSystem {
+    fn add_extract_system<T: RenderAsset>(&mut self) -> &mut Self;
+}
+
+impl AddExtractSystem for App {
+    fn add_extract_system<T: RenderAsset>(&mut self) -> &mut Self {
+        self.add_asset::<T>()
+            .init_resource::<RenderAssets<T::GpuEntity>>()
+            .add_system_to_stage(RenderStage::Prepare, insert_render_handle::<T>)
+            .add_system_to_stage(RenderStage::Extract, extract_render_assets::<T>)
+    }
+}
+
 pub trait AddRenderSystem {
-    fn add_render_system<T: RenderAsset>(&mut self) -> &mut Self;
+    fn add_render_system<T: RenderEntity>(&mut self) -> &mut Self;
 }
 
 impl AddRenderSystem for App {
-    fn add_render_system<T: RenderAsset>(&mut self) -> &mut Self {
-        self.add_asset::<T>()
-            .init_resource::<RenderAssets<T::GpuEntity>>()
-            .init_resource::<ExtractedTransforms>()
-            .add_system_to_stage(RenderStage::Extract, extract_global_transforms::<T>)
-            .add_system_to_stage(RenderStage::Extract, extract_render_assets::<T>)
-            .add_system_to_stage(RenderStage::Render, render_system::<T>)
+    fn add_render_system<T: RenderEntity>(&mut self) -> &mut Self {
+        self.add_system_to_stage(RenderStage::Render, render_system::<T>)
+    }
+}
+
+pub struct RenderTransformPlugin;
+impl Plugin for RenderTransformPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<ExtractedTransforms>()
+            .add_system_to_stage(RenderStage::Extract, extract_global_transforms);
+    }
+}
+
+pub struct ExtractedTransform {
+    pub uniform: Uniform<GlobalTransform>,
+    pub bind_refer: Refer<wgpu::BindGroup>,
+}
+pub type ExtractedTransforms = HashMap<Entity, ExtractedTransform>;
+
+pub fn extract_global_transforms(
+    device: Res<wgpu::Device>,
+    queue: Res<wgpu::Queue>,
+    query: Query<
+        (
+            Entity,
+            &GlobalTransform,
+            Added<GlobalTransform>,
+            Changed<GlobalTransform>,
+        ),
+        Or<(Added<GlobalTransform>, Changed<GlobalTransform>)>,
+    >,
+    removed: RemovedComponents<GlobalTransform>,
+    mut extracted_transforms: ResMut<ExtractedTransforms>,
+    mut bind_groups: ResMut<Store<wgpu::BindGroup>>,
+) {
+    for (entity, gtransform, added, changed) in query.iter() {
+        if added {
+            assert!(!extracted_transforms.contains_key(&entity));
+
+            let uniform = Uniform::new(&device, gtransform.generate_uniform());
+            let bind_group = uniform
+                .as_ref()
+                .into_bind_group(&device, &UniformDesc::default());
+            let bind_refer = store(&mut bind_groups, bind_group);
+            extracted_transforms.insert(
+                entity,
+                ExtractedTransform {
+                    uniform,
+                    bind_refer,
+                },
+            );
+        } else if changed {
+            let ExtractedTransform { uniform, .. } = extracted_transforms.get_mut(&entity).unwrap();
+            gtransform.update_uniform(&mut uniform.gpu_uniform);
+            uniform.sync_buffer(&queue);
+        };
+    }
+
+    removed
+        .iter()
+        .for_each(|entity| extracted_transforms.remove(&entity).sink());
+}
+
+#[derive(Component)]
+pub struct RenderHandle<T: RenderEntity>(pub HandleId, PhantomData<fn() -> T>);
+impl<T: RenderEntity> RenderHandle<T> {
+    pub fn new(id: HandleId) -> Self {
+        Self(id, PhantomData)
+    }
+
+    pub fn get(&self) -> HandleId {
+        self.0
     }
 }
 
@@ -81,77 +159,48 @@ pub fn extract_render_assets<T: RenderAsset>(
     }
 }
 
-pub struct ExtractedTransform {
-    pub uniform: Uniform<GlobalTransform>,
-    pub bind_refer: Refer<wgpu::BindGroup>,
-}
-pub type ExtractedTransforms = HashMap<Entity, ExtractedTransform>;
-
-pub fn extract_global_transforms<T: RenderAsset>(
-    device: Res<wgpu::Device>,
-    queue: Res<wgpu::Queue>,
-    query: Query<
-        (
-            Entity,
-            &GlobalTransform,
-            Added<GlobalTransform>,
-            Changed<GlobalTransform>,
-            &Handle<T>,
-        ),
-        Or<(Added<GlobalTransform>, Changed<GlobalTransform>)>,
-    >,
-    removed: RemovedComponents<GlobalTransform>,
-    mut extracted_transforms: ResMut<ExtractedTransforms>,
-    mut bind_groups: ResMut<Store<wgpu::BindGroup>>,
+pub fn insert_render_handle<T: RenderAsset>(
+    mut commands: Commands,
+    render_entities: Query<(Entity, &Handle<T>), Changed<Handle<T>>>,
+    removed_handles: RemovedComponents<Handle<T>>,
 ) {
-    for (entity, gtransform, added, changed, _handle) in query.iter() {
-        if added {
-            assert!(!extracted_transforms.contains_key(&entity));
-
-            let uniform = Uniform::new(&device, gtransform.generate_uniform());
-            let bind_group = uniform.as_ref().into_bind_group(&device, &UniformDesc::default());
-            let bind_refer = store(&mut bind_groups, bind_group);
-            extracted_transforms.insert(
-                entity,
-                ExtractedTransform {
-                    uniform,
-                    bind_refer,
-                },
-            );
-        } else if changed {
-            let ExtractedTransform { uniform, .. } = extracted_transforms.get_mut(&entity).unwrap();
-            gtransform.update_uniform(&mut uniform.gpu_uniform);
-            uniform.sync_buffer(&queue);
-        };
+    for (entity, handle) in render_entities.iter() {
+        commands
+            .entity(entity)
+            .insert(RenderHandle::<T::GpuEntity>::new(handle.id));
+        removed_handles.iter().for_each(|entity| {
+            commands
+                .entity(entity)
+                .remove::<RenderHandle<T::GpuEntity>>()
+                .sink()
+        });
     }
-
-    removed
-        .iter()
-        .for_each(|entity| extracted_transforms.remove(&entity).sink());
 }
 
-pub fn render_system<T: RenderAsset>(
+pub fn render_system<T: RenderEntity>(
     device: Res<wgpu::Device>,
     queue: Res<wgpu::Queue>,
     surfaces: Res<Surfaces>,
-    depth_texture: Option<Res<DepthTexture>>,
+    depth_textures: Res<DepthTextures>,
     pipelines: Res<Store<RenderPipeline>>,
     bind_groups: Res<Store<wgpu::BindGroup>>,
     cameras: Res<ExtractedCameras>,
     models: Res<ExtractedTransforms>,
-    render_assets: Res<RenderAssets<T::GpuEntity>>,
+    render_assets: Res<RenderAssets<T>>,
     render_entities: Query<
         (
             Entity,
             &Refer<RenderPipeline>,
             &RenderCamera,
-            &Handle<T>,
+            &RenderHandle<T>,
             Option<&InstanceData>,
         ),
         (With<GlobalTransform>, With<Visible>),
     >,
 ) {
-    for (window_id, SurfaceKit { surface, .. }) in surfaces.0.iter() {
+    for (window_id, SurfaceKit { surface, .. }) in surfaces.iter() {
+        let depth_texture = depth_textures.get(window_id);
+
         let output = surface.get_current_texture().unwrap();
         let view = output
             .texture
@@ -172,7 +221,7 @@ pub fn render_system<T: RenderAsset>(
                         store: true,
                     },
                 })],
-                depth_stencil_attachment: depth_texture.as_ref().as_ref().map(|dt| {
+                depth_stencil_attachment: depth_texture.map(|dt| {
                     wgpu::RenderPassDepthStencilAttachment {
                         view: &dt.0.view,
                         depth_ops: Some(wgpu::Operations {
@@ -210,13 +259,17 @@ pub fn render_system<T: RenderAsset>(
                         .unwrap(),
                 ];
 
-                draw_entity(
-                    &mut render_pass,
-                    pipeline,
-                    &bind_groups,
-                    render_assets.0.get(&render_asset_handle.into()).unwrap(),
-                    instance_data,
-                );
+                if let Some(render_asset_entity) =
+                    render_assets.0.get(&render_asset_handle.get().into())
+                {
+                    draw_entity(
+                        &mut render_pass,
+                        pipeline,
+                        &bind_groups,
+                        render_asset_entity,
+                        instance_data,
+                    );
+                }
             }
         } // drop(render_pass) <- mut borrow encoder
 

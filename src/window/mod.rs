@@ -1,8 +1,11 @@
 use std::collections::HashMap;
 
 use ::raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
-use bevy_app::{CoreStage, Plugin};
-use bevy_ecs::system::IntoExclusiveSystem;
+use bevy_app::{AppExit, CoreStage, Plugin};
+use bevy_ecs::{
+    prelude::{EventWriter, Events},
+    system::{IntoExclusiveSystem, ResMut},
+};
 use winit::{
     dpi::PhysicalSize,
     event_loop::{EventLoop, EventLoopWindowTarget},
@@ -12,8 +15,8 @@ use winit::{
 use self::{
     commands::WindowCommands,
     events::{
-        CreateWindow, CursorEntered, CursorLeft, FocusChanged, RequestRedraw, WindowCreated,
-        WindowResized,
+        CloseWindow, CreateWindow, CursorEntered, CursorLeft, FocusChanged, RequestRedraw,
+        WindowClosed, WindowCreated, WindowResized,
     },
     raw_window_handle::RawWindowHandleWrapper,
     runner::{
@@ -63,7 +66,8 @@ impl Plugin for FlatWinitPlugin {
             .add_system_to_stage(
                 CoreStage::PostUpdate,
                 execute_window_commands.exclusive_system(),
-            );
+            )
+            .add_system_to_stage(CoreStage::PreUpdate, close_window);
 
         if self.create_primary_window {
             app.world.init_resource::<WindowDescriptor>();
@@ -89,11 +93,30 @@ impl Plugin for FlatWindowPlugin {
         app.init_resource::<Windows>()
             .add_event::<CreateWindow>()
             .add_event::<WindowCreated>()
+            .add_event::<CloseWindow>()
+            .add_event::<WindowClosed>()
             .add_event::<WindowResized>()
             .add_event::<RequestRedraw>()
             .add_event::<FocusChanged>()
             .add_event::<CursorEntered>()
             .add_event::<CursorLeft>();
+    }
+}
+
+pub fn close_window(
+    mut windows: ResMut<Windows>,
+    mut winit_windows: ResMut<WinitWindows>,
+    mut close_window_events: ResMut<Events<CloseWindow>>,
+    mut window_closed_events: EventWriter<WindowClosed>,
+    mut app_exit: EventWriter<AppExit>,
+) {
+    for CloseWindow { id: window_id } in close_window_events.drain() {
+        winit_windows.map.remove(&window_id);
+        windows.map.remove(&window_id);
+        window_closed_events.send(WindowClosed { id: window_id });
+    }
+    if windows.map.is_empty() {
+        app_exit.send_default();
     }
 }
 
@@ -111,11 +134,14 @@ impl WinitWindows {
         id: WindowId,
         desc: &WindowDescriptor,
     ) -> Window {
-        let builder = WindowBuilder::new();
+        let mut builder = WindowBuilder::new();
 
         // TODO: build window from desc
         //
         //
+        if let Some(title) = &desc.title {
+            builder.window.title = title.clone();
+        }
 
         let winit_window = builder.build(event_loop).expect("Window build failed");
         // winit_window.request_redraw();
@@ -208,10 +234,12 @@ impl Window {
 }
 
 #[derive(Clone)]
-pub struct WindowDescriptor {}
+pub struct WindowDescriptor {
+    pub title: Option<String>,
+}
 
 impl Default for WindowDescriptor {
     fn default() -> Self {
-        Self {}
+        Self { title: None }
     }
 }
