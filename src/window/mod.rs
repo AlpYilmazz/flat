@@ -4,7 +4,7 @@ use ::raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
 use bevy_app::{AppExit, CoreStage, Plugin};
 use bevy_ecs::{
     prelude::{EventWriter, Events},
-    system::{IntoExclusiveSystem, ResMut},
+    system::{IntoExclusiveSystem, ResMut}, schedule::{SystemLabel, ParallelSystemDescriptorCoercion},
 };
 use winit::{
     dpi::PhysicalSize,
@@ -33,10 +33,14 @@ pub mod util;
 
 #[derive(Clone, Copy)]
 pub enum ExitOnWindowClose {
+    Never,
     Any,
     Primary,
     All,
 }
+
+#[derive(SystemLabel)]
+pub struct WindowOperation;
 
 pub struct FlatWinitPlugin {
     pub create_primary_window: bool,
@@ -67,7 +71,7 @@ impl Plugin for FlatWinitPlugin {
                 CoreStage::PostUpdate,
                 execute_window_commands.exclusive_system(),
             )
-            .add_system_to_stage(CoreStage::PreUpdate, close_window);
+            .add_system_to_stage(CoreStage::PreUpdate, close_window_system.label(WindowOperation));
 
         if self.create_primary_window {
             app.world.init_resource::<WindowDescriptor>();
@@ -103,7 +107,7 @@ impl Plugin for FlatWindowPlugin {
     }
 }
 
-pub fn close_window(
+pub fn close_window_system(
     mut windows: ResMut<Windows>,
     mut winit_windows: ResMut<WinitWindows>,
     mut close_window_events: ResMut<Events<CloseWindow>>,

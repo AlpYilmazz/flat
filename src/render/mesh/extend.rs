@@ -46,9 +46,9 @@ impl AsRef<Mesh<Vertex>> for Quad {
 }
 
 impl RenderAsset for Quad {
-    type GpuEntity = GpuMesh;
+    type ExtractedAsset = GpuMesh;
 
-    fn extract(&self, device: &wgpu::Device) -> Self::GpuEntity {
+    fn extract(&self, device: &wgpu::Device, _queue: &wgpu::Queue) -> Self::ExtractedAsset {
         GpuMesh::from_mesh(device, self)
     }
 }

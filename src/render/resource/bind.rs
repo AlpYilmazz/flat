@@ -32,16 +32,31 @@ impl BindingSetLayoutDescriptor {
     }
 }
 
-pub trait BindingDesc {
+pub trait BindingDesc: 'static {
     fn get_layout_entry(&self) -> BindingLayoutEntry;
 }
 
-pub trait BindingSetDesc {
+pub trait BindingSetDesc: 'static {
     fn layout_desc(&self) -> BindingSetLayoutDescriptor;
     fn bind_group_layout(&self, device: &wgpu::Device) -> wgpu::BindGroupLayout;
 }
 
-impl<B0> BindingSetDesc for &B0
+// impl<B0> BindingSetDesc for &B0
+// where
+//     B0: BindingDesc,
+// {
+//     fn layout_desc(&self) -> BindingSetLayoutDescriptor {
+//         BindingSetLayoutDescriptor {
+//             entries: vec![self.get_layout_entry().with_binding(0)],
+//         }
+//     }
+
+//     fn bind_group_layout(&self, device: &wgpu::Device) -> wgpu::BindGroupLayout {
+//         let bs_layout = self.layout_desc();
+//         device.create_bind_group_layout(&bs_layout.as_wgpu())
+//     }
+// }
+impl<B0> BindingSetDesc for B0
 where
     B0: BindingDesc,
 {
@@ -66,17 +81,39 @@ pub trait Binding {
 pub trait BindingSet {
     type SetDesc: BindingSetDesc;
 
-    fn into_bind_group(&self, device: &wgpu::Device, desc: Self::SetDesc) -> wgpu::BindGroup;
+    fn into_bind_group(&self, device: &wgpu::Device, desc: &Self::SetDesc) -> wgpu::BindGroup;
 }
 
+// #[allow(non_snake_case)]
+// impl<'B0, B0> BindingSet for &'B0 B0
+// where
+//     B0: Binding,
+// {
+//     type SetDesc = &'B0 B0::Desc;
+
+//     fn into_bind_group(&self, device: &wgpu::Device, desc: Self::SetDesc) -> wgpu::BindGroup {
+//         let bind_group_layout = desc.bind_group_layout(device);
+
+//         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+//             label: None,
+//             layout: &bind_group_layout,
+//             entries: &[wgpu::BindGroupEntry {
+//                 binding: 0,
+//                 resource: self.get_resource(),
+//             }],
+//         });
+
+//         bind_group
+//     }
+// }
 #[allow(non_snake_case)]
-impl<'B0, B0> BindingSet for &'B0 B0
+impl<B0> BindingSet for B0
 where
     B0: Binding,
 {
-    type SetDesc = &'B0 B0::Desc;
+    type SetDesc = B0::Desc;
 
-    fn into_bind_group(&self, device: &wgpu::Device, desc: Self::SetDesc) -> wgpu::BindGroup {
+    fn into_bind_group(&self, device: &wgpu::Device, desc: &Self::SetDesc) -> wgpu::BindGroup {
         let bind_group_layout = desc.bind_group_layout(device);
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -95,9 +132,9 @@ where
 macro_rules! impl_binding_set_tuple {
     ($count:literal,$(($ind: literal,$life: lifetime,$param: ident)),*) => {
         #[allow(non_snake_case)]
-        impl<$($life),* , $($param: BindingDesc),*> BindingSetDesc for ($(&$life $param,)*) {
+        impl<$($param: BindingDesc),*> BindingSetDesc for ($($param,)*) {
             fn layout_desc(&self) -> BindingSetLayoutDescriptor {
-                let ($($param,)*) = *self;
+                let ($($param,)*) = self;
                 BindingSetLayoutDescriptor {
                     entries: vec![
                         $(
@@ -106,7 +143,7 @@ macro_rules! impl_binding_set_tuple {
                     ],
                 }
             }
-        
+
             fn bind_group_layout(&self, device: &wgpu::Device) -> wgpu::BindGroupLayout {
                 let bs_layout = self.layout_desc();
                 device.create_bind_group_layout(&bs_layout.as_wgpu())
@@ -115,9 +152,10 @@ macro_rules! impl_binding_set_tuple {
 
         #[allow(non_snake_case)]
         impl<$($life),* , $($param: Binding),*> BindingSet for ($(&$life $param,)*) {
-            type SetDesc = ($(&$life $param::Desc,)*);
+            // type SetDesc = ($(&$life $param::Desc,)*);
+            type SetDesc = ($($param::Desc,)*);
 
-            fn into_bind_group(&self, device: &wgpu::Device, desc: Self::SetDesc) -> wgpu::BindGroup {
+            fn into_bind_group(&self, device: &wgpu::Device, desc: &Self::SetDesc) -> wgpu::BindGroup {
                 let ($($param,)*) = *self;
 
                 let bind_group_layout = desc.bind_group_layout(device);
@@ -150,11 +188,11 @@ impl_binding_set_tuple!(4, (0, 'B0, B0), (1, 'B1, B1), (2, 'B2, B2), (3, 'B3, B3
 impl_binding_set_tuple!(5, (0, 'B0, B0), (1, 'B1, B1), (2, 'B2, B2), (3, 'B3, B3), (4, 'B4, B4));
 impl_binding_set_tuple!(6, (0, 'B0, B0), (1, 'B1, B1), (2, 'B2, B2), (3, 'B3, B3), (4, 'B4, B4), (5, 'B5, B5));
 
-pub trait AsBindingSet<'a> {
-    type Set: BindingSet;
+// pub trait AsBindingSet {
+//     type Set<'s>: BindingSet;
 
-    fn as_binding_set(&'a self) -> Self::Set;
-}
+//     fn as_binding_set<'a>(&'a self) -> Self::Set<'a>;
+// }
 pub trait IntoBindingSet {
     type Set: BindingSet;
 
@@ -167,21 +205,34 @@ impl<T: BindingSet> IntoBindingSet for T {
         self
     }
 }
+pub trait InnerBindingSet {
+    type InnerDesc: IntoBindingSetDesc;
 
+    fn extract_bind_group(&self, device: &wgpu::Device, desc: &Self::InnerDesc) -> wgpu::BindGroup;
+}
+impl<T: BindingSet> InnerBindingSet for T {
+    type InnerDesc = T::SetDesc;
+
+    fn extract_bind_group(&self, device: &wgpu::Device, desc: &Self::InnerDesc) -> wgpu::BindGroup {
+        self.into_bind_group(device, desc)
+    }
+}
+
+#[deprecated]
 pub trait AsBindingSetDesc<'a> {
     type SetDesc: BindingSetDesc;
 
-    fn as_binding_set(&'a self) -> Self::SetDesc;
+    fn as_binding_set_desc(&'a self) -> Self::SetDesc;
 }
 pub trait IntoBindingSetDesc {
     type SetDesc: BindingSetDesc;
 
-    fn into_binding_set(self) -> Self::SetDesc;
+    fn into_binding_set_desc(self) -> Self::SetDesc;
 }
 impl<T: BindingSetDesc> IntoBindingSetDesc for T {
     type SetDesc = T;
 
-    fn into_binding_set(self) -> Self::SetDesc {
+    fn into_binding_set_desc(self) -> Self::SetDesc {
         self
     }
 }

@@ -1,5 +1,9 @@
+use std::{any::TypeId, collections::HashMap};
+
+use crate::util::Label;
+
 use super::{
-    bind::{BindingSetDesc, IntoBindingSetDesc},
+    bind::{BindingSet, BindingSetDesc, IntoBindingSetDesc},
     shader,
 };
 
@@ -13,6 +17,7 @@ pub struct RenderPipelineDescriptor<'a> {
 pub struct RenderPipelineBuilder<'a> {
     device: &'a wgpu::Device,
     bind_group_layouts: Vec<wgpu::BindGroupLayout>,
+    locations: HashMap<TypeId, HashMap<Option<Label>, usize>>,
 }
 
 impl<'a> RenderPipelineBuilder<'a> {
@@ -20,11 +25,28 @@ impl<'a> RenderPipelineBuilder<'a> {
         Self {
             device,
             bind_group_layouts: Vec::new(),
+            locations: HashMap::new(),
         }
     }
 
-    pub fn with_bind<T: IntoBindingSetDesc>(mut self, desc: T) -> Self {
+    pub fn with_bind<T: IntoBindingSetDesc>(mut self, label: Option<Label>, desc: T) -> Self {
         let desc = desc.into_binding_set_desc();
+        let type_id = TypeId::of::<T::SetDesc>();
+        match label {
+            Some(_) => {
+                if !self.locations.contains_key(&type_id) {
+                    self.locations.insert(type_id, HashMap::new());
+                }
+                let locations = self.locations.get_mut(&type_id).unwrap();
+                matches!(locations.get(&None), None);
+                locations.insert(label, self.bind_group_layouts.len());
+            }
+            None => {
+                assert!(!self.locations.contains_key(&type_id));
+                let mut locations = HashMap::new();
+                locations.insert(label /* None */, self.bind_group_layouts.len());
+            }
+        }
         self.bind_group_layouts
             .push(desc.bind_group_layout(self.device));
         self
@@ -91,12 +113,33 @@ impl<'a> RenderPipelineBuilder<'a> {
             multiview: None,
         });
 
+        // let mut locations = Vec::with_capacity(self.bind_group_layouts.len());
+        // for (type_id, mut loc_map) in self.locations.drain() {
+        //     for (label, loc) in loc_map.drain() {
+        //         locations.insert((type_id, label));
+        //     }
+        // }
+        let locations = self.locations;
+
         RenderPipeline {
-            inner: render_pipeline,
+            locations,
+            wgpu_pipeline: render_pipeline,
         }
     }
 }
 
 pub struct RenderPipeline {
-    pub inner: wgpu::RenderPipeline,
+    // locations: Vec<(TypeId, Option<Label>)>,
+    locations: HashMap<TypeId, HashMap<Option<Label>, usize>>,
+    pub wgpu_pipeline: wgpu::RenderPipeline,
+}
+
+impl RenderPipeline {
+    pub fn bind_location<T: BindingSet>(&self, bind_label: &Option<Label>) -> Option<u32> {
+        let bind_type_id = TypeId::of::<T::SetDesc>();
+        self.locations
+            .get(&bind_type_id)?
+            .get(bind_label)
+            .map(|loc| *loc as u32)
+    }
 }

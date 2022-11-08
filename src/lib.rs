@@ -8,12 +8,11 @@ use window::{ExitOnWindowClose, FlatWindowPlugin, FlatWinitPlugin};
 // pub mod legacy;
 pub mod misc;
 pub mod text;
-pub mod texture;
 pub mod util;
 
 pub mod asset;
-pub mod input;
 pub mod hierarchy;
+pub mod input;
 pub mod render;
 pub mod shaders;
 pub mod transform;
@@ -57,6 +56,9 @@ impl PluginGroup for FlatEngineCore {
                 ..Default::default()
             })
             .add(FlatRenderPlugin);
+            
+            bevy_render::RenderStage::Extract;
+            bevy_sprite::Anchor::BottomCenter;
     }
 }
 

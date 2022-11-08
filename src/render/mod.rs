@@ -4,13 +4,12 @@ use bevy_app::{App, CoreStage, Plugin};
 use bevy_asset::{AddAsset, Handle};
 use bevy_ecs::{
     prelude::{Bundle, Component, Entity, EventReader},
-    schedule::{StageLabel, SystemLabel, SystemStage},
+    schedule::{ParallelSystemDescriptorCoercion, StageLabel, SystemLabel, SystemStage},
     system::{Res, ResMut},
 };
 use winit::dpi::PhysicalSize;
 
 use crate::{
-    texture::{self, Texture},
     transform::{GlobalTransform, Transform},
     util::{AssetStore, EngineDefault, Refer, Store},
     window::{
@@ -22,24 +21,32 @@ use crate::{
 use self::{
     camera::RenderCameraPlugin,
     mesh::{extend::Quad, GpuMesh, Mesh},
-    resource::shader::{ShaderSource, ShaderSourceLoader, Shaders},
+    resource::shader::{ShaderSource, ShaderSourceLoader},
     resource::{buffer::Vertex, pipeline::RenderPipeline},
-    system::{AddExtractSystem, AddRenderSystem, RenderAsset, RenderTransformPlugin},
+    system::{AddRenderSystem, RenderAsset, RenderPlugin},
+    texture::GpuTexture,
+    transform::RenderTransformPlugin,
 };
 
 pub mod camera;
+pub mod command;
 pub mod mesh;
 pub mod mesh_bevy;
 pub mod resource;
 pub mod system;
+pub mod texture;
+pub mod transform;
 
 #[derive(StageLabel)]
 pub enum RenderStage {
     Prepare,
     Extract,
     Render,
+    Present,
 }
 
+#[derive(SystemLabel)]
+pub struct SurfaceLifecycle;
 #[derive(SystemLabel)]
 pub struct SurfaceReconfigure;
 
@@ -59,6 +66,11 @@ impl Plugin for FlatRenderPlugin {
         .add_stage_after(
             RenderStage::Extract,
             RenderStage::Render,
+            SystemStage::single_threaded(),
+        )
+        .add_stage_after(
+            RenderStage::Extract,
+            RenderStage::Present,
             SystemStage::parallel(),
         )
         .init_resource::<DepthTextures>()
@@ -66,19 +78,31 @@ impl Plugin for FlatRenderPlugin {
         .init_resource::<Store<RenderPipeline>>()
         .init_resource::<AssetStore<Refer<RenderPipeline>>>()
         .init_resource::<Store<wgpu::BindGroup>>()
-        .init_resource::<Shaders>()
         .add_asset_loader(ShaderSourceLoader)
         .add_asset::<ShaderSource>()
-        .add_system_to_stage(CoreStage::PreUpdate, create_surface_system)
-        .add_system_to_stage(CoreStage::PreUpdate, destroy_surface_system)
-        .add_system_to_stage(RenderStage::Prepare, reconfigure_surface_system)
-        .add_extract_system::<Mesh<Vertex>>()
-        .add_extract_system::<Quad>()
-        .add_render_system::<GpuMesh>();
+        .add_system_to_stage(
+            RenderStage::Prepare,
+            create_surface_system.label(SurfaceLifecycle),
+        )
+        .add_system_to_stage(
+            RenderStage::Prepare,
+            destroy_surface_system.label(SurfaceLifecycle),
+        )
+        .add_system_to_stage(
+            RenderStage::Prepare,
+            reconfigure_surface_system
+                .label(SurfaceReconfigure)
+                .after(SurfaceLifecycle),
+        );
 
         create_wgpu_resources(app);
 
-        app.add_plugin(RenderCameraPlugin)
+        // app.add_asset_extract::<Image>();
+
+        app.add_render_system::<GpuMesh>()
+            .add_plugin(RenderPlugin::<Mesh<Vertex>>::default())
+            .add_plugin(RenderPlugin::<Quad>::default())
+            .add_plugin(RenderCameraPlugin)
             .add_plugin(RenderTransformPlugin);
     }
 }
@@ -86,7 +110,7 @@ impl Plugin for FlatRenderPlugin {
 #[derive(Component)]
 pub struct InstanceData(wgpu::Buffer, u32);
 
-pub struct DepthTexture(texture::Texture);
+pub struct DepthTexture(texture::GpuTexture);
 pub type DepthTextures = HashMap<WindowId, DepthTexture>;
 
 pub struct SurfaceKit {
@@ -149,6 +173,9 @@ pub fn create_wgpu_resources(app: &mut App) {
         .insert_resource(queue);
 }
 
+pub type CommandBuffers = Vec<wgpu::CommandBuffer>;
+pub type SurfaceTextures = Vec<(WindowId, wgpu::SurfaceTexture, wgpu::TextureView)>;
+
 pub fn reconfigure_surface_system(
     device: Res<wgpu::Device>,
     mut surfaces: ResMut<Surfaces>,
@@ -168,7 +195,7 @@ pub fn reconfigure_surface_system(
 
             let depth_texture = depth_textures.get_mut(window_id);
             depth_texture.map(|dt| {
-                *dt = DepthTexture(Texture::create_depth_texture(&device, config, None));
+                *dt = DepthTexture(GpuTexture::create_depth_texture(&device, config, None));
             });
         }
     }
@@ -193,7 +220,7 @@ pub fn create_surface_system(
 
         depth_textures.insert(
             window_id.clone(),
-            DepthTexture(Texture::create_depth_texture(
+            DepthTexture(GpuTexture::create_depth_texture(
                 &device,
                 &surface_kit.config,
                 None,

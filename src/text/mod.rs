@@ -1,8 +1,6 @@
-use std::{collections::HashMap, ffi::OsStr};
+use std::collections::HashMap;
 
 use anyhow::*;
-
-use crate::texture;
 
 pub mod mesh;
 
@@ -272,7 +270,7 @@ impl TextMap {
 
 #[cfg(test)]
 mod tests {
-    use super::{FontContainer, TextAtlas};
+    use super::*;
 
     #[test]
     fn create_atlas() {

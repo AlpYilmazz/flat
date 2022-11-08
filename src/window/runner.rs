@@ -198,11 +198,14 @@ pub fn winit_event_loop_runner(mut app: bevy_app::App) {
                             ExitOnWindowClose::Primary if window_id.is_primary() => {
                                 *control_flow = ControlFlow::Exit;
                             },
-                            ExitOnWindowClose::Primary | ExitOnWindowClose::All => {
+                            ExitOnWindowClose::All if windows.map.len() == 1 => {
+                                *control_flow = ControlFlow::Exit;
+                            },
+                            ExitOnWindowClose::Never | ExitOnWindowClose::Primary | ExitOnWindowClose::All => {
                                 let mut close_window_events = 
                                     world.get_resource_mut::<Events<CloseWindow>>().unwrap();
-                                    close_window_events.send(CloseWindow { id: window_id });
-                            },
+                                close_window_events.send(CloseWindow { id: window_id });
+                            }
                         }
                     },
                     // WindowEvent::Destroyed => {},

@@ -277,3 +277,41 @@ pub trait Sink: Sized {
     fn sink(self) {}
 }
 impl<T: Sized> Sink for T {}
+
+#[derive(Clone, Hash, PartialEq, Eq)]
+pub struct Label(pub String);
+impl Deref for Label {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl DerefMut for Label {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+pub trait Labeled {
+    fn get_label(&self) -> &Option<Label>;
+}
+
+#[derive(Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Location(pub u32);
+impl Deref for Location {
+    type Target = u32;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl DerefMut for Location {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+pub trait LocationBound {
+    fn get_location(&self) -> Location;
+}

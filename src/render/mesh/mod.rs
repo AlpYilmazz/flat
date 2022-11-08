@@ -4,7 +4,7 @@ use wgpu::util::DeviceExt;
 
 use super::{
     resource::buffer::{FromRawVertex, Indices, MeshVertex},
-    system::{RenderAsset, RenderEntity},
+    system::{RenderAsset, Draw},
 };
 
 pub mod extend;
@@ -283,23 +283,23 @@ impl GpuMesh {
 }
 
 impl<V: MeshVertex> RenderAsset for Mesh<V> {
-    type GpuEntity = GpuMesh;
+    type ExtractedAsset = GpuMesh;
 
-    fn extract(&self, device: &wgpu::Device) -> Self::GpuEntity {
+    fn extract(&self, device: &wgpu::Device, _queue: &wgpu::Queue) -> Self::ExtractedAsset {
         GpuMesh::from_mesh(&device, self)
     }
 }
 
 impl<V: MeshVertex> RenderAsset for BatchMesh<V> {
-    type GpuEntity = GpuMesh;
+    type ExtractedAsset = GpuMesh;
 
-    fn extract(&self, device: &wgpu::Device) -> Self::GpuEntity {
+    fn extract(&self, device: &wgpu::Device, _queue: &wgpu::Queue) -> Self::ExtractedAsset {
         GpuMesh::from_mesh(&device, self)
     }
 }
 
-impl RenderEntity for GpuMesh {
-    fn set_buffers<'a>(
+impl Draw for GpuMesh {
+    fn draw<'a>(
         &'a self,
         render_pass: &mut wgpu::RenderPass<'a>,
         instance_data: Option<&'a super::InstanceData>,
