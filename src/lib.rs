@@ -1,22 +1,8 @@
-use asset::FlatAssetPlugin;
-use bevy_app::{CoreStage, Plugin, PluginGroup};
-use input::FlatInputPlugin;
-use render::FlatRenderPlugin;
-use transform::FlatTransformPlugin;
-use window::{ExitOnWindowClose, FlatWindowPlugin, FlatWinitPlugin};
+use bevy_app::{Plugin, PluginGroup};
 
-// pub mod legacy;
 pub mod misc;
 pub mod text;
 pub mod util;
-
-pub mod asset;
-pub mod hierarchy;
-pub mod input;
-pub mod render;
-pub mod shaders;
-pub mod transform;
-pub mod window;
 
 /*
 TypeUuid
@@ -37,28 +23,56 @@ pub struct FlatEngineComplete;
 
 impl PluginGroup for FlatEngineComplete {
     fn build(&mut self, group: &mut bevy_app::PluginGroupBuilder) {
+        BevyPlugins.build(group);
         FlatEngineCore.build(group);
     }
 }
 
-pub struct FlatEngineCore;
+pub struct BevyPlugins;
+impl PluginGroup for BevyPlugins {
+    fn build(&mut self, group: &mut bevy_app::PluginGroupBuilder) {
+        group.add(BevyPluginSettings);
 
+        group
+            .add(bevy_log::LogPlugin)
+            .add(bevy_core::CorePlugin)
+            .add(bevy_time::TimePlugin)
+            .add(bevy_transform::TransformPlugin)
+            .add(bevy_hierarchy::HierarchyPlugin)
+            // .add(bevy_diagnostic::DiagnosticsPlugin::default())
+            .add(bevy_input::InputPlugin)
+            .add(bevy_window::WindowPlugin);
+
+        group
+            .add(bevy_asset::AssetPlugin)
+            .add(bevy_winit::WinitPlugin)
+            .add(bevy_render::RenderPlugin);
+    }
+}
+
+pub struct BevyPluginSettings;
+impl Plugin for BevyPluginSettings {
+    fn build(&self, app: &mut bevy_app::App) {
+        app.insert_resource(bevy_window::WindowSettings {
+            add_primary_window: true,
+            exit_on_all_closed: true,
+            close_when_requested: true,
+        })
+        .insert_resource(bevy_winit::WinitSettings::game())
+        .insert_resource(bevy_asset::AssetServerSettings {
+            asset_folder: "res".to_string(),
+            watch_for_changes: false,
+        });
+    }
+}
+
+pub struct FlatEngineCore;
 impl PluginGroup for FlatEngineCore {
     fn build(&mut self, group: &mut bevy_app::PluginGroupBuilder) {
-        group
-            .add(FlatCorePlugin)
-            .add(FlatTransformPlugin)
-            .add(FlatInputPlugin)
-            .add(FlatAssetPlugin)
-            .add(FlatWindowPlugin)
-            .add(FlatWinitPlugin {
-                exit_on_close: ExitOnWindowClose::Primary,
-                ..Default::default()
-            })
-            .add(FlatRenderPlugin);
-            
-            bevy_render::RenderStage::Extract;
-            bevy_sprite::Anchor::BottomCenter;
+        group.add(FlatCorePlugin);
+
+        // bevy_render::RenderStage::Extract;
+        // bevy_sprite::Anchor::BottomCenter;
     }
 }
 
@@ -66,59 +80,3 @@ pub struct FlatCorePlugin;
 impl Plugin for FlatCorePlugin {
     fn build(&self, _app: &mut bevy_app::App) {}
 }
-
-// let pixel_size = std::mem::size_of::<[u8;4]>() as u32;
-//         let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-//         let unpadded_bytes_per_row = pixel_size * self.size.width;
-//         let padding = (align - unpadded_bytes_per_row % align) % align;
-//         let padded_bytes_per_row = unpadded_bytes_per_row + padding;
-
-//         // println!("{}\n{}\n{}\n", padded_bytes_per_row, self.size.height,
-//         //     padded_bytes_per_row * self.size.height);
-
-//         let frame = output.texture.as_image_copy();
-//         encoder.copy_texture_to_buffer(
-//             frame,
-//             wgpu::ImageCopyBuffer {
-//                 buffer: &self.framesave_buffer,
-//                 layout: wgpu::ImageDataLayout {
-//                     offset: 0,
-//                     bytes_per_row: NonZeroU32::new(padded_bytes_per_row),
-//                     rows_per_image: NonZeroU32::new(self.size.height),
-//                 },
-//             },
-//             wgpu::Extent3d {
-//                 width: self.size.width,
-//                 height: self.size.height,
-//                 depth_or_array_layers: 1,
-//             },
-//         );
-
-//         let buffer_slice = self.framesave_buffer.slice(..);
-//         let (tx, rx) = futures_intrusive::channel::shared::oneshot_channel();
-//         buffer_slice.map_async(
-//             wgpu::MapMode::Read,
-//             move |result| {
-//                 tx.send(result).unwrap();
-//             }
-//         );
-//         // wait for the GPU to finish
-//         self.device.poll(wgpu::Maintain::Wait);
-
-//         let result = pollster::block_on(rx.receive());
-
-//         match result {
-//             Some(Ok(())) => {
-//                 let padded_data = buffer_slice.get_mapped_range();
-//                 let data = padded_data
-//                     .chunks(padded_bytes_per_row as _)
-//                     .map(|chunk| &chunk[..unpadded_bytes_per_row as _])
-//                     .flatten()
-//                     .map(|x| *x)
-//                     .collect::<Vec<_>>();
-//                 drop(padded_data);
-//                 self.framesave_buffer.unmap();
-//                 self.recorded_frames.push(data);
-//             }
-//             _ => eprintln!("Something went wrong"),
-//         }
