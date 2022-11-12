@@ -1,5 +1,8 @@
 use bevy_app::{Plugin, PluginGroup};
 
+pub mod core_2d;
+pub mod sprite;
+
 pub mod misc;
 pub mod text;
 pub mod util;
