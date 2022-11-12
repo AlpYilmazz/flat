@@ -1,4 +1,8 @@
-use bevy_app::{Plugin, PluginGroup};
+use bevy::{
+    app::PluginGroupBuilder,
+    prelude::{App, Plugin, PluginGroup},
+    DefaultPlugins,
+};
 
 pub mod core_2d;
 pub mod sprite;
@@ -25,61 +29,42 @@ AA97B177-9383-4934-8543-0F91A7A02836
 pub struct FlatEngineComplete;
 
 impl PluginGroup for FlatEngineComplete {
-    fn build(&mut self, group: &mut bevy_app::PluginGroupBuilder) {
-        BevyPlugins.build(group);
-        FlatEngineCore.build(group);
+    fn build(self) -> PluginGroupBuilder {
+        PluginGroupBuilder::start::<Self>()
+            .add(FlatBevyPlugins)
+            .add(FlatEngineCore)
     }
 }
 
-pub struct BevyPlugins;
-impl PluginGroup for BevyPlugins {
-    fn build(&mut self, group: &mut bevy_app::PluginGroupBuilder) {
-        group.add(BevyPluginSettings);
+pub struct FlatBevyPlugins;
+impl Plugin for FlatBevyPlugins {
+    fn build(&self, app: &mut App) {
+        app.add_plugin(BevyPluginSettings);
 
-        group
-            .add(bevy_log::LogPlugin)
-            .add(bevy_core::CorePlugin)
-            .add(bevy_time::TimePlugin)
-            .add(bevy_transform::TransformPlugin)
-            .add(bevy_hierarchy::HierarchyPlugin)
-            // .add(bevy_diagnostic::DiagnosticsPlugin::default())
-            .add(bevy_input::InputPlugin)
-            .add(bevy_window::WindowPlugin);
-
-        group
-            .add(bevy_asset::AssetPlugin)
-            .add(bevy_winit::WinitPlugin)
-            .add(bevy_render::RenderPlugin);
+        app.add_plugins(
+            DefaultPlugins
+                .set(bevy::window::WindowPlugin {
+                    window: Default::default(),
+                    add_primary_window: true,
+                    exit_on_all_closed: true,
+                    close_when_requested: true,
+                })
+                .set(bevy::asset::AssetPlugin {
+                    asset_folder: "res".to_string(),
+                    watch_for_changes: false,
+                }),
+        );
     }
 }
 
 pub struct BevyPluginSettings;
 impl Plugin for BevyPluginSettings {
-    fn build(&self, app: &mut bevy_app::App) {
-        app.insert_resource(bevy_window::WindowSettings {
-            add_primary_window: true,
-            exit_on_all_closed: true,
-            close_when_requested: true,
-        })
-        .insert_resource(bevy_winit::WinitSettings::game())
-        .insert_resource(bevy_asset::AssetServerSettings {
-            asset_folder: "res".to_string(),
-            watch_for_changes: false,
-        });
+    fn build(&self, app: &mut App) {
+        app.insert_resource(bevy::winit::WinitSettings::game());
     }
 }
 
 pub struct FlatEngineCore;
-impl PluginGroup for FlatEngineCore {
-    fn build(&mut self, group: &mut bevy_app::PluginGroupBuilder) {
-        group.add(FlatCorePlugin);
-
-        // bevy_render::RenderStage::Extract;
-        // bevy_sprite::Anchor::BottomCenter;
-    }
-}
-
-pub struct FlatCorePlugin;
-impl Plugin for FlatCorePlugin {
-    fn build(&self, _app: &mut bevy_app::App) {}
+impl Plugin for FlatEngineCore {
+    fn build(&self, _app: &mut App) {}
 }

@@ -1,5 +1,7 @@
-use bevy_asset::{AssetLoader, LoadedAsset};
-use bevy_reflect::TypeUuid;
+use bevy::{
+    asset::{AssetLoader, LoadedAsset},
+    reflect::TypeUuid,
+};
 use bluenoise::BlueNoise;
 use rand_pcg::Pcg64Mcg;
 
@@ -11,8 +13,8 @@ impl AssetLoader for TextLoader {
     fn load<'a>(
         &'a self,
         bytes: &'a [u8],
-        load_context: &'a mut bevy_asset::LoadContext,
-    ) -> bevy_asset::BoxedFuture<'a, anyhow::Result<(), anyhow::Error>> {
+        load_context: &'a mut bevy::asset::LoadContext,
+    ) -> bevy::asset::BoxedFuture<'a, anyhow::Result<(), anyhow::Error>> {
         Box::pin(async move {
             load_context.set_default_asset(LoadedAsset::new(Text(
                 String::from_utf8(bytes.to_owned()).unwrap(),

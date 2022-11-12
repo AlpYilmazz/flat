@@ -1133,6 +1133,7 @@ dependencies = [
  "float-ord",
  "freetype-rs",
  "gif",
+ "image",
  "rand_pcg",
  "raw-window-handle 0.5.0",
  "wgpu",

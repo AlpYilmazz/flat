@@ -4,11 +4,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use bevy_asset::HandleId;
-use bevy_ecs::{
-    prelude::{Component, Entity},
-    system::{Res, ResMut, Resource, SystemParam},
-};
+use bevy::{asset::HandleId, ecs::system::SystemParam, prelude::*};
 
 // TODO: Maybe change to Vec
 //       Vec -> more cache friendly, worse removal
@@ -182,6 +178,7 @@ pub fn store_many<T>(store: &mut Store<T>, mut vals: Vec<T>) -> ReferMany<T> {
     ReferMany::to(inds)
 }
 
+#[derive(Resource)]
 pub struct PrimaryEntity<T> {
     pub entity: Entity,
     _marker: PhantomData<fn() -> T>,

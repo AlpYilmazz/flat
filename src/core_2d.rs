@@ -1,20 +1,11 @@
-use bevy_app::Plugin;
-use bevy_ecs::{
-    prelude::{Component, Entity},
-    query::QueryState,
-    system::lifetimeless::Read,
-    world::World,
-};
-use bevy_render::{
-    render_graph::{Node, NodeRunError, RenderGraph, RenderGraphContext, SlotInfo, SlotType},
-    render_phase::{
-        CachedRenderPipelinePhaseItem, DrawFunctionId, DrawFunctions, EntityPhaseItem, PhaseItem,
-        RenderPhase, TrackedRenderPass,
-    },
-    render_resource::CachedRenderPipelineId,
-    renderer::RenderContext,
-    view::ViewTarget,
-    RenderApp,
+use bevy::{
+    prelude::*,
+    render::{
+        render_graph::{RenderGraph, SlotInfo, SlotType, Node, RenderGraphContext, NodeRunError},
+        render_phase::{DrawFunctionId, DrawFunctions, PhaseItem, EntityPhaseItem, CachedRenderPipelinePhaseItem, RenderPhase, TrackedRenderPass},
+        render_resource::CachedRenderPipelineId,
+        RenderApp, view::ViewTarget, renderer::RenderContext,
+    }, ecs::system::lifetimeless::Read,
 };
 use float_ord::FloatOrd;
 
@@ -30,7 +21,7 @@ pub mod graph {
 
 pub struct FlatCore2dPlugin;
 impl Plugin for FlatCore2dPlugin {
-    fn build(&self, app: &mut bevy_app::App) {
+    fn build(&self, app: &mut App) {
         app.init_resource::<DrawFunctions<PrimitiveQuad>>();
 
         if let Ok(render_app) = app.get_sub_app_mut(RenderApp) {
@@ -41,12 +32,14 @@ impl Plugin for FlatCore2dPlugin {
             );
             let input_node_id = core_2d_graph
                 .set_input(vec![SlotInfo::new(graph::input::IN_VIEW, SlotType::Entity)]);
-            core_2d_graph.add_slot_edge(
-                input_node_id,
-                graph::input::IN_VIEW,
-                graph::main::NODE,
-                Main2dRenderNode::NODE_INPUT_IN_VIEW,
-            ).unwrap();
+            core_2d_graph
+                .add_slot_edge(
+                    input_node_id,
+                    graph::input::IN_VIEW,
+                    graph::main::NODE,
+                    Main2dRenderNode::NODE_INPUT_IN_VIEW,
+                )
+                .unwrap();
 
             let mut main_render_graph = render_app.world.resource_mut::<RenderGraph>();
             main_render_graph.add_sub_graph(graph::NAME, core_2d_graph);
