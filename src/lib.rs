@@ -3,6 +3,8 @@ use bevy::{
     prelude::{App, Plugin, PluginGroup},
     DefaultPlugins,
 };
+use core_2d::FlatCore2dPlugin;
+use sprite::FlatSpritePlugin;
 
 pub mod core_2d;
 pub mod sprite;
@@ -66,5 +68,8 @@ impl Plugin for BevyPluginSettings {
 
 pub struct FlatEngineCore;
 impl Plugin for FlatEngineCore {
-    fn build(&self, _app: &mut App) {}
+    fn build(&self, app: &mut App) {
+        app.add_plugin(FlatCore2dPlugin)
+            .add_plugin(FlatSpritePlugin);
+    }
 }
