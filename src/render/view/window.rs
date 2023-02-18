@@ -120,7 +120,7 @@ pub fn configure_surfaces(
         };
 
         if is_new_surface || window.size_changed || window.present_mode_changed {
-            surface.configure(&render_device, &config);
+            surface.configure(render_device.inner(), &config);
             let surface_texture = surface
                 .get_current_texture()
                 .expect("Could not get surface texture");
@@ -142,7 +142,7 @@ pub fn configure_surfaces(
                     });
                 }
                 Err(wgpu::SurfaceError::Outdated) => {
-                    surface.configure(&render_device, &config);
+                    surface.configure(render_device.inner(), &config);
                     let surface_texture = surface
                         .get_current_texture()
                         .expect("Could not get surface texture");

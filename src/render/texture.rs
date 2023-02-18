@@ -9,6 +9,7 @@ use super::{RenderAsset, RenderDevice, RenderQueue};
 #[uuid = "3F897E85-62CE-4B2C-A957-FCF0CCE649FD"]
 pub struct Image(pub DynamicImage);
 
+#[derive(Default)]
 pub struct ImageLoader;
 impl AssetLoader for ImageLoader {
     fn load<'a>(

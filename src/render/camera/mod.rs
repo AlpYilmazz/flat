@@ -8,7 +8,7 @@ use bevy::{
 
 use self::component::*;
 
-use super::{RenderStage, prepare_component_uniforms};
+use super::resource::component_uniform::AddComponentUniform;
 
 pub mod component;
 
@@ -17,7 +17,7 @@ impl Plugin for FlatCameraPlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
         app.add_projection_systems::<OrthographicProjection>()
             .add_projection_systems::<PerspectiveProjection>()
-            .add_system_to_stage(RenderStage::Prepare, prepare_component_uniforms::<Camera>)
+            .add_component_uniform::<Camera>()
             .add_system_to_stage(CoreStage::PostUpdate, visibility_system);
     }
 }

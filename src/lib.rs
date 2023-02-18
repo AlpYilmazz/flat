@@ -3,6 +3,8 @@ use bevy::{
     prelude::{App, Plugin, PluginGroup},
     DefaultPlugins,
 };
+use render::FlatRenderPlugin;
+use sprite::FlatSpritePlugin;
 
 pub mod render;
 pub mod sprite;
@@ -31,7 +33,7 @@ pub struct FlatEngineComplete;
 impl PluginGroup for FlatEngineComplete {
     fn build(self) -> PluginGroupBuilder {
         PluginGroupBuilder::start::<Self>()
-            // .add(FlatBevyPlugins)
+            .add(FlatBevyPlugins)
             .add(FlatEngineCore)
     }
 }
@@ -41,8 +43,32 @@ impl Plugin for FlatBevyPlugins {
     fn build(&self, app: &mut App) {
         app.add_plugin(BevyPluginSettings);
 
+        // app.add_plugin(bevy::log::LogPlugin::default())
+        //     .add_plugin(bevy::core::CorePlugin::default())
+        //     .add_plugin(bevy::time::TimePlugin::default())
+        //     .add_plugin(bevy::transform::TransformPlugin::default())
+        //     .add_plugin(bevy::hierarchy::HierarchyPlugin::default())
+        //     .add_plugin(bevy::diagnostic::DiagnosticsPlugin::default())
+        //     .add_plugin(bevy::input::InputPlugin::default())
+        //     .add_plugin(bevy::window::WindowPlugin {
+        //         window: Default::default(),
+        //         add_primary_window: true,
+        //         exit_on_all_closed: true,
+        //         close_when_requested: true,
+        //     });
+
+        // app.add_plugin(bevy::winit::WinitPlugin::default())
+        //     .add_plugin(bevy::asset::AssetPlugin {
+        //         asset_folder: "res".to_string(),
+        //         watch_for_changes: false,
+        //     });
+
         app.add_plugins(
             DefaultPlugins
+                .set(bevy::log::LogPlugin {
+                    level: bevy::log::Level::TRACE,
+                    ..Default::default()
+                })
                 .set(bevy::window::WindowPlugin {
                     window: Default::default(),
                     add_primary_window: true,
@@ -52,7 +78,8 @@ impl Plugin for FlatBevyPlugins {
                 .set(bevy::asset::AssetPlugin {
                     asset_folder: "res".to_string(),
                     watch_for_changes: false,
-                }),
+                })
+                // .disable::<bevy::render::RenderPlugin>()
         );
     }
 }
@@ -66,5 +93,8 @@ impl Plugin for BevyPluginSettings {
 
 pub struct FlatEngineCore;
 impl Plugin for FlatEngineCore {
-    fn build(&self, app: &mut App) {}
+    fn build(&self, app: &mut App) {
+        app.add_plugin(FlatRenderPlugin)
+            .add_plugin(FlatSpritePlugin);
+    }
 }

@@ -7,8 +7,14 @@ use super::resource::uniform::HandleGpuUniform;
 pub struct Color(pub f32, pub f32, pub f32, pub f32);
 
 impl Color {
+    pub const WHITE: Color = Color(0.0, 0.0, 0.0, 1.0);
+
     pub fn as_vec(&self) -> Vec4 {
         Vec4::new(self.0, self.1, self.2, self.3)
+    }
+
+    pub fn as_arr(&self) -> [f32; 4] {
+        [self.0, self.1, self.2, self.3]
     }
 
     #[inline]

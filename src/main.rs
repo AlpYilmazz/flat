@@ -1,12 +1,16 @@
 use bevy::{
     app::AppExit,
-    prelude::{
-        App, AssetServer, Camera, Color, Commands, EventWriter, Input, KeyCode, Res, Transform,
-        Vec3,
-    },
-    render::camera::CameraRenderGraph,
+    prelude::{App, AssetServer, Assets, Commands, EventWriter, Input, KeyCode, Res},
 };
-use flat::{FlatBevyPlugins, FlatEngineComplete};
+use flat::{
+    render::{
+        camera::component::{CameraBundle, PerspectiveProjection},
+        mesh::Mesh,
+        resource::buffer::Vertex,
+    },
+    sprite::{bundle::SpriteBundle, UNIT_SQUARE_HANDLE},
+    FlatEngineComplete,
+};
 
 fn exit_on_esc(key: Res<Input<KeyCode>>, mut app_exit: EventWriter<AppExit>) {
     if key.pressed(KeyCode::Escape) {
@@ -14,46 +18,26 @@ fn exit_on_esc(key: Res<Input<KeyCode>>, mut app_exit: EventWriter<AppExit>) {
     }
 }
 
-fn spawn_sprite(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn spawn_sprite(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    meshes: Res<Assets<Mesh<Vertex>>>,
+) {
+    let unit_square_mesh = meshes.get_handle(UNIT_SQUARE_HANDLE);
     let texture_handle = asset_server.load("happy-tree.png");
-    commands.spawn(bevy::prelude::Camera2dBundle::default());
-    commands.spawn_batch([
-        bevy::sprite::SpriteBundle {
-            // sprite: todo!(),
-            // transform: todo!(),
-            // global_transform: todo!(),
-            texture: texture_handle.clone(),
-            // visibility: todo!(),
-            // computed_visibility: todo!(),
-            ..Default::default()
-        },
-        bevy::sprite::SpriteBundle {
-            sprite: bevy::sprite::Sprite {
-                color: Color::RED,
-                ..Default::default()
-            },
-            transform: Transform::from_translation(Vec3::new(100.0, 100.0, 1.0)),
-            // global_transform: todo!(),
-            texture: texture_handle,
-            // visibility: todo!(),
-            // computed_visibility: todo!(),
-            ..Default::default()
-        },
-        // SpriteBundle {
-        //     sprite: Sprite { color: Color::RED },
-        //     global_transform: Default::default(),
-        //     transform: Transform::from_translation(Vec3::new(1.0, 1.0, 0.0)),
-        //     texture: texture_handle,
-        //     visibility: Default::default(),
-        // },
-    ]);
+    commands.spawn(SpriteBundle {
+        mesh: unit_square_mesh,
+        texture: texture_handle,
+        ..Default::default()
+    });
+
+    commands.spawn(CameraBundle::<PerspectiveProjection>::default());
 }
 
 fn main() {
     let mut app = App::new();
-    app
-        // .add_plugins(FlatEngineComplete)
-        .add_plugin(FlatBevyPlugins)
+    app.add_plugins(FlatEngineComplete)
+        // .add_plugin(FlatBevyPlugins)
         // .add_plugin(bevy::core_pipeline::CorePipelinePlugin)
         // .add_plugin(bevy::sprite::SpritePlugin)
         .add_system(exit_on_esc)

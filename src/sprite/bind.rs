@@ -1,15 +1,15 @@
 use bevy::{
     asset::HandleId,
     ecs::system::SystemState,
-    prelude::{FromWorld, Res, ResMut, Resource, World},
+    prelude::{FromWorld, Res, ResMut, Resource, World, Deref, DerefMut},
     utils::HashMap,
 };
 use encase::ShaderType;
 
 use crate::{render::{
-    resource::{pipeline::{BindGroupLayout, PipelineCache, RenderPipelineDescriptor, PipelineLayoutDescriptor, VertexState, FragmentState, RenderPipelineId}, shader::Shader, buffer::{Vertex, MeshVertex}},
+    resource::{pipeline::{BindGroupLayout, PipelineCache, RenderPipelineDescriptor, PipelineLayoutDescriptor, VertexState, FragmentState, RenderPipelineId}, shader::Shader, buffer::{Vertex, MeshVertex}, renderer::{RenderDevice, RenderQueue}, component_uniform::{ComponentUniforms, ModelUniform}},
     texture::{GpuTexture, Image, PixelFormat, RawImage},
-    RenderAssets, RenderDevice, RenderQueue,
+    RenderAssets, camera::component::CameraUniforms,
 }, util::EngineDefault};
 
 use super::SPRITE_SHADER_HANDLE;
@@ -39,8 +39,8 @@ impl FromWorld for SpritePipeline {
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: true,
-                        min_binding_size: None,
-                        // min_binding_size: Some(bevy::render::view::ViewUniform::min_size()),
+                        // min_binding_size: None,
+                        min_binding_size: Some(ModelUniform::min_size()),
                     },
                     count: None,
                 }],
@@ -55,7 +55,7 @@ impl FromWorld for SpritePipeline {
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: true,
-                        min_binding_size: Some(bevy::render::view::ViewUniform::min_size()),
+                        min_binding_size: Some(CameraUniforms::min_size()),
                     },
                     count: None,
                 }],
@@ -162,20 +162,66 @@ impl FromWorld for SpritePipeline {
     }
 }
 
-#[derive(Resource, Default)]
+#[derive(Default, Resource)]
+pub struct SpriteBindGroups {
+    pub model_bind_group: Option<wgpu::BindGroup>,
+    pub view_bind_group: Option<wgpu::BindGroup>,
+}
+
+pub fn create_sprite_bind_groups(
+    mut sprite_bind_groups: ResMut<SpriteBindGroups>,
+    render_device: Res<RenderDevice>,
+    sprite_pipeline: Res<SpritePipeline>,
+    model_uniforms: Res<ComponentUniforms<ModelUniform>>,
+    view_uniforms: Res<ComponentUniforms<CameraUniforms>>,
+) {
+    let Some(model_binding) = model_uniforms.binding() else {
+        return;
+    };
+    let model_bind_group = render_device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None,
+        layout: &sprite_pipeline.model_layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: model_binding,
+            },
+        ],
+    });
+
+    let Some(view_binding) = view_uniforms.binding() else {
+        return;
+    };
+    let view_bind_group = render_device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None,
+        layout: &sprite_pipeline.view_layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: view_binding,
+            },
+        ],
+    });
+
+    sprite_bind_groups.model_bind_group = Some(model_bind_group);
+    sprite_bind_groups.view_bind_group = Some(view_bind_group);
+}
+
+
+#[derive(Resource, Default, Deref, DerefMut)]
 pub struct TextureBindGroups(pub HashMap<HandleId, wgpu::BindGroup>);
 
 pub fn create_texture_bind_groups(
-    device: Res<RenderDevice>,
-    sprite_shader: Res<SpritePipeline>,
+    render_device: Res<RenderDevice>,
+    sprite_pipeline: Res<SpritePipeline>,
     mut texture_bind_groups: ResMut<TextureBindGroups>,
     render_images: Res<RenderAssets<Image>>,
 ) {
     for (handle_id, gpu_image) in render_images.iter() {
-        texture_bind_groups.0.entry(*handle_id).or_insert_with(|| {
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
+        texture_bind_groups.entry(*handle_id).or_insert_with(|| {
+            render_device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
-                layout: &sprite_shader.texture_layout,
+                layout: &sprite_pipeline.texture_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,

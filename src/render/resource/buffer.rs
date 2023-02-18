@@ -120,13 +120,15 @@ pub trait InstanceUnit: Sized + C + Pod + Zeroable {
 #[uuid = "10929DF8-15C5-472B-9398-7158AB89A0A6"]
 pub struct Vertex {
     pub position: [f32; 3],
-    pub tex_coords: [f32; 2],
+    pub uv: [f32; 2],
+    pub color: [f32; 4],
 }
 
 impl MeshVertex for Vertex {
     const ATTRIBUTES: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
         0 => Float32x3,
         1 => Float32x2,
+        2 => Float32x4,
     ];
 }
 
@@ -135,11 +137,12 @@ impl FromRawVertex for Vertex {
         position: &[f32; 3],
         texcoord: &[f32; 2],
         _normal: &[f32; 3],
-        _vertex_color: &[f32; 3],
+        vertex_color: &[f32; 3],
     ) -> Self {
         Self {
             position: position.clone(),
-            tex_coords: texcoord.clone(),
+            uv: texcoord.clone(),
+            color: [vertex_color[0], vertex_color[1], vertex_color[2], 1.0],
         }
     }
 }

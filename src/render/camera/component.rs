@@ -1,19 +1,19 @@
 use bevy::{
-    prelude::{Bundle, Component, Entity, GlobalTransform, Handle, Mat4, Transform},
+    prelude::{Bundle, Component, Entity, GlobalTransform, Handle, Transform, Mat4},
     window::WindowId,
 };
 use encase::ShaderType;
 
 use crate::render::{texture::Image, view::window::PreparedWindows, RenderAssets, resource::uniform::HandleGpuUniform};
 
-#[derive(Bundle)]
+#[derive(Bundle, Default)]
 pub struct CameraBundle<P: Projection> {
     pub transform: Transform,
     pub global_transform: GlobalTransform,
     pub camera: Camera,
     pub projection: P,
     pub visible_entities: VisibleEntities,
-    pub render_layers: RenderLayers,
+    // pub render_layers: RenderLayers,
 }
 
 pub enum RenderTarget {
@@ -68,11 +68,30 @@ pub struct CameraMatrices {
     pub proj: Mat4,
 }
 
+impl CameraMatrices {
+    fn identity() -> Self {
+        Self {
+            view: Mat4::IDENTITY,
+            proj: Mat4::IDENTITY,
+        }
+    }
+}
+
 #[derive(Component)]
 pub struct Camera {
     pub render_target: RenderTarget,
     pub computed: CameraMatrices,
     pub is_active: bool,
+}
+
+impl Default for Camera {
+    fn default() -> Self {
+        Self {
+            render_target: RenderTarget::Window(WindowId::primary()),
+            computed: CameraMatrices::identity(),
+            is_active: true,
+        }
+    }
 }
 
 pub trait Projection: Component {
@@ -114,6 +133,17 @@ pub struct PerspectiveProjection {
     pub fovy: f32,
     pub znear: f32,
     pub zfar: f32,
+}
+
+impl Default for PerspectiveProjection {
+    fn default() -> Self {
+        Self {
+            aspect: 1.0,
+            fovy: std::f32::consts::PI / 4.0,
+            zfar: 1000.0,
+            znear: 0.1,
+        }
+    }
 }
 
 impl Projection for PerspectiveProjection {

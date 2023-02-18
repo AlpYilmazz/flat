@@ -1,10 +1,11 @@
 use bevy::{prelude::Component, reflect::TypeUuid};
-use wgpu::util::DeviceExt;
 
 use super::{
     resource::buffer::{Indices, MeshVertex},
     RenderAsset, RenderDevice, RenderQueue,
 };
+
+pub mod primitive;
 
 pub struct Model<V: MeshVertex> {
     pub meshes: Vec<Mesh<V>>,
@@ -184,7 +185,7 @@ pub struct GpuMesh {
 }
 
 impl GpuMesh {
-    pub fn from_mesh<V, M>(device: &wgpu::Device, mesh: M) -> GpuMesh
+    pub fn from_mesh<V, M>(render_device: &RenderDevice, mesh: M) -> GpuMesh
     where
         V: MeshVertex,
         M: AsRef<Mesh<V>>,
@@ -192,14 +193,14 @@ impl GpuMesh {
         let mesh: &Mesh<V> = mesh.as_ref();
         GpuMesh {
             vertex_buffer_layout: mesh.get_vertex_buffer_layout(),
-            vertex_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            vertex_buffer: render_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Vertex Buffer"),
                 contents: &mesh.get_vertex_buffer_bytes(),
                 usage: wgpu::BufferUsages::VERTEX,
             }),
             assembly: match mesh.get_index_buffer_bytes() {
                 Some(indices) => GpuMeshAssembly::Indexed {
-                    index_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    index_buffer: render_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                         label: Some("Index Buffer"),
                         contents: indices,
                         usage: wgpu::BufferUsages::INDEX,
@@ -219,16 +220,16 @@ impl GpuMesh {
 impl<V: MeshVertex> RenderAsset for Mesh<V> {
     type PreparedAsset = GpuMesh;
 
-    fn prepare(&self, device: &RenderDevice, _queue: &RenderQueue) -> Self::PreparedAsset {
-        GpuMesh::from_mesh(&device, self)
+    fn prepare(&self, render_device: &RenderDevice, _queue: &RenderQueue) -> Self::PreparedAsset {
+        GpuMesh::from_mesh(render_device, self)
     }
 }
 
 impl<V: MeshVertex> RenderAsset for BatchMesh<V> {
     type PreparedAsset = GpuMesh;
 
-    fn prepare(&self, device: &RenderDevice, _queue: &RenderQueue) -> Self::PreparedAsset {
-        GpuMesh::from_mesh(&device, self)
+    fn prepare(&self, render_device: &RenderDevice, _queue: &RenderQueue) -> Self::PreparedAsset {
+        GpuMesh::from_mesh(render_device, self)
     }
 }
 

@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies.bevy]
 git = "https://github.com/bevyengine/bevy"
+rev = "920543c"
 default-features = false
 features = [
     # Bevy Crates
@@ -14,21 +15,21 @@ features = [
     "bevy_winit",
 
     # Render
-    "bevy_core_pipeline",
-    "bevy_render",
-    "bevy_sprite",
+    # "bevy_core_pipeline",
+    # "bevy_render",
+    # "bevy_sprite",
 
     # Image Formats
-    "jpeg",
-    "png",
-    "hdr",
+    # "jpeg",
+    # "png",
+    # "hdr",
 
-    "x11",
+    # "x11",
     
     "filesystem_watcher",
 
     "trace",
-    "wgpu_trace",
+    # "wgpu_trace",
 ]
 
 [dependencies.image]
@@ -40,8 +41,9 @@ features = ["png", "jpeg"]
 wgpu = "0.14.0" # "0.13.1"
 winit = "0.27.4" # "0.26.1"
 raw-window-handle = "0.5.0" # "0.4.2"
+futures-lite = "1.4.0"
 bytemuck = { version = "1.4", features = [ "derive" ] }
-encase = "0.4.0"
+encase = { version = "0.4.0", features = [ "glam" ] }
 
 bitflags = "1.3.2"
 # float-ord = "0.3.2"

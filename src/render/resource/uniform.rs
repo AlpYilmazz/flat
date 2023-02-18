@@ -1,5 +1,8 @@
 // DISCLAIMER: COPIED FROM BEVY
 
+use std::{marker::PhantomData, ops::{Deref, DerefMut}};
+
+use bevy::prelude::Component;
 use encase::{
     internal::WriteInto, DynamicUniformBuffer as DynamicUniformBufferWrapper, ShaderType,
     UniformBuffer as UniformBufferWrapper,
@@ -234,6 +237,28 @@ impl<T: ShaderType + WriteInto> DynamicUniformBuffer<T> {
         self.values.clear();
         self.scratch.as_mut().clear();
         self.scratch.set_offset(0);
+    }
+}
+
+// -- Bevy Copy End --
+
+#[derive(Component)]
+pub struct DynamicUniformId<T: ShaderType>(pub u32, PhantomData<T>);
+impl<T: ShaderType> Deref for DynamicUniformId<T> {
+    type Target = u32;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl<T: ShaderType> DerefMut for DynamicUniformId<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+impl<T: ShaderType> From<u32> for DynamicUniformId<T> {
+    fn from(value: u32) -> Self {
+        Self(value, PhantomData)
     }
 }
 

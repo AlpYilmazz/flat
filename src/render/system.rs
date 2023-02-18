@@ -1,7 +1,9 @@
+use core::panic;
+
 use bevy::{
     ecs::system::lifetimeless::Read,
     prelude::{
-        Component, Entity, FromWorld, GlobalTransform, Handle, Mut, QueryState, Resource,
+        App, Component, Entity, FromWorld, GlobalTransform, Handle, Mut, QueryState, Resource,
         Transform, With, World,
     },
     utils::HashSet,
@@ -132,6 +134,28 @@ impl RenderNode {
     }
 }
 
+pub trait AddRenderFunction {
+    fn add_render_function(&mut self, id: usize, render: RenderFunction) -> &mut Self;
+    fn complete_render_function_init(&mut self) -> &mut Self;
+}
+impl AddRenderFunction for App {
+    fn add_render_function(&mut self, id: usize, render: RenderFunction) -> &mut Self {
+        self.world
+            .get_resource_mut::<RenderFunctions>()
+            .unwrap()
+            .add(RenderFunctionId(id), render);
+        self
+    }
+
+    fn complete_render_function_init(&mut self) -> &mut Self {
+        self.world
+            .get_resource_mut::<RenderFunctions>()
+            .unwrap()
+            .complete();
+        self
+    }
+}
+
 pub enum RenderResult {
     Success,
     Failure,
@@ -144,22 +168,55 @@ pub type RenderFunction = for<'w> fn(
     &mut wgpu::RenderPass<'w>,
 ) -> RenderResult;
 
+// TODO: entity has to register a RenderFunctionId
+//       how does it find the id
 #[derive(Component)]
-pub struct RenderFunctionId(pub usize);
+pub struct RenderFunctionId(usize);
 
-#[derive(Resource, Default)]
+impl From<usize> for RenderFunctionId {
+    fn from(value: usize) -> Self {
+        RenderFunctionId(value)
+    }
+}
+
+#[derive(Resource)]
 pub struct RenderFunctions {
+    complete: bool,
+    init: Vec<(usize, RenderFunction)>,
     functions: Vec<RenderFunction>,
 }
 
+impl Default for RenderFunctions {
+    fn default() -> Self {
+        Self {
+            complete: false,
+            init: Vec::new(),
+            functions: Vec::new(),
+        }
+    }
+}
+
 impl RenderFunctions {
-    pub fn add(&mut self, render: RenderFunction) -> RenderFunctionId {
-        self.functions.push(render);
-        RenderFunctionId(self.functions.len() - 1)
+    pub fn add(&mut self, id: RenderFunctionId, render: RenderFunction) {
+        if self.complete {
+            return;
+        }
+        if self.init.iter().any(|(rid, _)| id.0 == *rid) {
+            panic!("Attempted adding multiple render functions with the same id");
+        }
+        self.init.push((id.0, render));
     }
 
     pub fn get(&self, index: RenderFunctionId) -> Option<&RenderFunction> {
         self.functions.get(index.0)
+    }
+
+    pub fn complete(&mut self) {
+        self.complete = true;
+        self.init.sort_by_key(|(id, _)| *id);
+        for (_, render) in self.init.drain(..) {
+            self.functions.push(render);
+        }
     }
 }
 
