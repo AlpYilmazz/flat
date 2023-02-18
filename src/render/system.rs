@@ -4,9 +4,9 @@ use bevy::{
     ecs::system::lifetimeless::Read,
     prelude::{
         App, Component, Entity, FromWorld, GlobalTransform, Handle, Mut, QueryState, Resource,
-        Transform, With, World,
+        Transform, With, World, warn, info,
     },
-    utils::HashSet,
+    utils::{HashSet, HashMap},
     window::WindowId,
 };
 use winit::window::Window;
@@ -44,7 +44,7 @@ pub fn render_system(world: &mut World) {
 #[derive(Resource)]
 pub struct RenderNode {
     cameras: QueryState<(Entity, Read<Camera>, Read<VisibleEntities>)>,
-    entities: QueryState<(Entity,), (With<Visible>,)>,
+    entities: QueryState<(Entity,), (With<Visibility>,)>,
 }
 
 impl FromWorld for RenderNode {
@@ -93,7 +93,7 @@ impl RenderNode {
                     view: &render_target_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        load: wgpu::LoadOp::Clear(wgpu::Color::GREEN),
                         store: true,
                     },
                 })],
@@ -102,11 +102,12 @@ impl RenderNode {
 
             for entity in visible_entities.iter() {
                 if let Some(render_function_id) = world.get::<RenderFunctionId>(*entity) {
-                    let render = render_functions
-                        .functions
-                        .get(render_function_id.0)
-                        .unwrap();
-                    (render)(camera_entity, *entity, world, &mut render_pass);
+                    let render = render_functions.get(render_function_id).unwrap();
+                    let render_result = (render)(camera_entity, *entity, world, &mut render_pass);
+                    match render_result {
+                        RenderResult::Success => info!("RenderResult::Success"),
+                        RenderResult::Failure => warn!("RenderResult::Failure"),
+                    }
                 }
             }
         }
@@ -136,7 +137,6 @@ impl RenderNode {
 
 pub trait AddRenderFunction {
     fn add_render_function(&mut self, id: usize, render: RenderFunction) -> &mut Self;
-    fn complete_render_function_init(&mut self) -> &mut Self;
 }
 impl AddRenderFunction for App {
     fn add_render_function(&mut self, id: usize, render: RenderFunction) -> &mut Self {
@@ -144,14 +144,6 @@ impl AddRenderFunction for App {
             .get_resource_mut::<RenderFunctions>()
             .unwrap()
             .add(RenderFunctionId(id), render);
-        self
-    }
-
-    fn complete_render_function_init(&mut self) -> &mut Self {
-        self.world
-            .get_resource_mut::<RenderFunctions>()
-            .unwrap()
-            .complete();
         self
     }
 }
@@ -170,7 +162,7 @@ pub type RenderFunction = for<'w> fn(
 
 // TODO: entity has to register a RenderFunctionId
 //       how does it find the id
-#[derive(Component)]
+#[derive(Component, Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RenderFunctionId(usize);
 
 impl From<usize> for RenderFunctionId {
@@ -181,16 +173,14 @@ impl From<usize> for RenderFunctionId {
 
 #[derive(Resource)]
 pub struct RenderFunctions {
-    complete: bool,
-    init: Vec<(usize, RenderFunction)>,
+    id_to_ind: HashMap<RenderFunctionId, usize>,
     functions: Vec<RenderFunction>,
 }
 
 impl Default for RenderFunctions {
     fn default() -> Self {
         Self {
-            complete: false,
-            init: Vec::new(),
+            id_to_ind: HashMap::new(),
             functions: Vec::new(),
         }
     }
@@ -198,25 +188,15 @@ impl Default for RenderFunctions {
 
 impl RenderFunctions {
     pub fn add(&mut self, id: RenderFunctionId, render: RenderFunction) {
-        if self.complete {
-            return;
-        }
-        if self.init.iter().any(|(rid, _)| id.0 == *rid) {
+        if self.id_to_ind.contains_key(&id) {
             panic!("Attempted adding multiple render functions with the same id");
         }
-        self.init.push((id.0, render));
+        self.functions.push(render);
+        self.id_to_ind.insert(id, self.functions.len() - 1);
     }
 
-    pub fn get(&self, index: RenderFunctionId) -> Option<&RenderFunction> {
-        self.functions.get(index.0)
-    }
-
-    pub fn complete(&mut self) {
-        self.complete = true;
-        self.init.sort_by_key(|(id, _)| *id);
-        for (_, render) in self.init.drain(..) {
-            self.functions.push(render);
-        }
+    pub fn get(&self, index: &RenderFunctionId) -> Option<&RenderFunction> {
+        self.functions.get(*self.id_to_ind.get(index)?)
     }
 }
 

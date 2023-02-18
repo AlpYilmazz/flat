@@ -129,7 +129,7 @@ impl FromWorld for SpritePipeline {
                 entry_point: Shader::FS_ENTRY_DEFAULT,
                 targets: vec![Some(wgpu::ColorTargetState {
                     format: wgpu::TextureFormat::engine_default(),
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
             }),

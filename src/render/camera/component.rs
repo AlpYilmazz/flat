@@ -157,7 +157,9 @@ impl Projection for PerspectiveProjection {
 }
 
 #[derive(Component)]
-pub struct Visible;
+pub struct Visibility {
+    pub visible: bool,
+}
 
 #[derive(Component, Default)]
 pub struct VisibleEntities {

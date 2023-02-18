@@ -20,7 +20,7 @@ use self::{
         renderer::{RenderAdapter, RenderDevice, RenderInstance, RenderQueue},
         shader::{Shader, ShaderLoader},
     },
-    system::{render_system, AddRenderFunction, RenderFunctions, RenderNode},
+    system::{render_system, RenderFunctions, RenderNode},
     texture::{Image, ImageLoader},
     view::window::FlatViewPlugin,
 };
@@ -68,23 +68,19 @@ impl Plugin for FlatRenderPlugin {
         app.init_resource::<RenderFunctions>()
             .init_resource::<RenderNode>()
             .init_resource::<PipelineCache>()
-            .add_asset::<Shader>()
-            .add_asset::<Image>()
-            .add_asset::<Mesh<Vertex>>()
             .init_asset_loader::<ShaderLoader>()
             .init_asset_loader::<ImageLoader>()
             // .init_asset_loader::<MeshLoader>()
+            .add_asset::<Shader>()
+            .add_render_asset::<Image>()
+            .add_render_asset::<Mesh<Vertex>>()
             .add_component_uniform::<Color>()
             .add_component_uniform::<GlobalTransform>()
-            .add_system_to_stage(RenderStage::Prepare, compile_shaders_into_pipelines)
-            .add_system_to_stage(RenderStage::Prepare, prepare_render_assets::<Image>)
-            .add_system_to_stage(RenderStage::Prepare, prepare_render_assets::<Mesh<Vertex>>);
+            .add_system_to_stage(RenderStage::Prepare, compile_shaders_into_pipelines);
 
         app.add_plugin(FlatCameraPlugin).add_plugin(FlatViewPlugin);
 
         create_wgpu_resources(app);
-
-        app.complete_render_function_init();
     }
 }
 
@@ -114,13 +110,6 @@ pub fn create_wgpu_resources(app: &mut App) {
             instance.create_surface(&handle)
         });
 
-    if let None = surface {
-        println!("PRIMARY WINDOW NONE")
-    } else {
-        println!("Primary Window: {}", windows.primary().title());
-    }
-
-    let instance = wgpu::Instance::new(wgpu::Backends::all());
     let adapter =
         futures_lite::future::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference,
@@ -145,6 +134,17 @@ pub fn create_wgpu_resources(app: &mut App) {
         .insert_resource(RenderDevice(device));
 }
 
+pub trait AddRenderAsset {
+    fn add_render_asset<T: RenderAsset>(&mut self) -> &mut Self;
+}
+impl AddRenderAsset for App {
+    fn add_render_asset<T: RenderAsset>(&mut self) -> &mut Self {
+        self.add_asset::<T>()
+            .init_resource::<RenderAssets<T>>()
+            .add_system_to_stage(RenderStage::Prepare, prepare_render_assets::<T>)
+    }
+}
+
 pub trait RenderAsset: Asset {
     type PreparedAsset: Send + Sync + 'static;
 
@@ -153,6 +153,12 @@ pub trait RenderAsset: Asset {
 
 #[derive(Resource, Deref, DerefMut)]
 pub struct RenderAssets<T: RenderAsset>(pub HashMap<HandleId, T::PreparedAsset>);
+
+impl<T: RenderAsset> Default for RenderAssets<T> {
+    fn default() -> Self {
+        Self(HashMap::new())
+    }
+}
 
 pub fn prepare_render_assets<T: RenderAsset>(
     render_device: Res<RenderDevice>,

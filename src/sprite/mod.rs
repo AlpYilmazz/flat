@@ -44,6 +44,7 @@ impl Plugin for FlatSpritePlugin {
         }
 
         app.init_resource::<SpritePipeline>()
+            .init_resource::<SpriteBindGroups>()
             .init_resource::<TextureBindGroups>()
             .add_render_function(SPRITE_RENDER_FUNCTION, render_sprite)
             .add_system_to_stage(RenderStage::Create, create_sprite_bind_groups)

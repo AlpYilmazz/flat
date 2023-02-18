@@ -1,6 +1,6 @@
 use bevy::{
     app::AppExit,
-    prelude::{App, AssetServer, Assets, Commands, EventWriter, Input, KeyCode, Res},
+    prelude::{App, AssetServer, Assets, Commands, EventWriter, Input, KeyCode, Res, Transform, Vec3},
 };
 use flat::{
     render::{
@@ -26,12 +26,16 @@ fn spawn_sprite(
     let unit_square_mesh = meshes.get_handle(UNIT_SQUARE_HANDLE);
     let texture_handle = asset_server.load("happy-tree.png");
     commands.spawn(SpriteBundle {
+        transform: Transform::from_scale(Vec3::new(100.0, 100.0, 100.0)),
         mesh: unit_square_mesh,
         texture: texture_handle,
         ..Default::default()
     });
 
-    commands.spawn(CameraBundle::<PerspectiveProjection>::default());
+    commands.spawn(CameraBundle::<PerspectiveProjection> {
+        transform: Transform::from_xyz(0.0, 0.0, 200.0),
+        ..Default::default()
+    });
 }
 
 fn main() {

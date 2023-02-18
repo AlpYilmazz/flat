@@ -66,7 +66,7 @@ impl Plugin for FlatBevyPlugins {
         app.add_plugins(
             DefaultPlugins
                 .set(bevy::log::LogPlugin {
-                    level: bevy::log::Level::TRACE,
+                    level: bevy::log::Level::INFO,
                     ..Default::default()
                 })
                 .set(bevy::window::WindowPlugin {

@@ -72,10 +72,11 @@ pub fn update_camera_values<P: Projection>(mut query: Query<(&mut Camera, &Globa
 }
 
 pub fn visibility_system(
-    entities: Query<(Entity, Option<&RenderLayers>), With<Visible>>,
+    entities: Query<(Entity, &Visibility, Option<&RenderLayers>)>,
     mut cameras: Query<(Option<&RenderLayers>, &mut VisibleEntities), With<Camera>>,
 ) {
-    for (entity, entity_layers) in entities.iter() {
+    for (entity, visibility, entity_layers) in entities.iter() {
+        if !visibility.visible { continue; }
         for (camera_layers, mut visible_entities) in cameras.iter_mut() {
             if layers_intersect(entity_layers, camera_layers) {
                 visible_entities.entities.push(entity);
