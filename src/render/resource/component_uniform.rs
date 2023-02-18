@@ -1,10 +1,15 @@
-use bevy::prelude::{Resource, Deref, DerefMut, Component, Commands, ResMut, Query, Entity, Mat4, GlobalTransform, Res, App};
-use encase::{ShaderType, private::WriteInto};
+use bevy::prelude::{
+    App, Commands, Component, Deref, DerefMut, Entity, GlobalTransform, Mat4, Query, Res, ResMut,
+    Resource,
+};
+use encase::{private::WriteInto, ShaderType};
 
 use crate::render::RenderStage;
 
-use super::{uniform::{DynamicUniformBuffer, HandleGpuUniform, DynamicUniformId}, renderer::{RenderDevice, RenderQueue}};
-
+use super::{
+    renderer::{RenderDevice, RenderQueue},
+    uniform::{DynamicUniformBuffer, DynamicUniformId, HandleGpuUniform},
+};
 
 #[derive(Resource, Deref, DerefMut)]
 pub struct ComponentUniforms<T: ShaderType + WriteInto + Send + Sync + 'static>(
@@ -50,7 +55,7 @@ pub fn prepare_component_uniforms<H: HandleGpuUniform + Component>(
     commands.insert_or_spawn_batch(spawns);
 }
 
-pub fn queue_component_uniforms<H: HandleGpuUniform + Component> (
+pub fn queue_component_uniforms<H: HandleGpuUniform + Component>(
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     mut component_uniforms: ResMut<ComponentUniforms<H::GU>>,

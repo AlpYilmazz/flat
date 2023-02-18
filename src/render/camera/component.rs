@@ -257,7 +257,7 @@ impl HandleGpuUniform for Camera {
 
     fn into_uniform(&self) -> Self::GU {
         CameraUniforms {
-            view_proj: self.computed.view * self.computed.proj,
+            view_proj: self.computed.proj * self.computed.view.inverse(), // NOTE: Why inverse
             view: self.computed.view,
             proj: self.computed.proj,
         }

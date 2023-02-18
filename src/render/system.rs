@@ -4,9 +4,9 @@ use bevy::{
     ecs::system::lifetimeless::Read,
     prelude::{
         App, Component, Entity, FromWorld, GlobalTransform, Handle, Mut, QueryState, Resource,
-        Transform, With, World, warn, info,
+        Transform, With, World,
     },
-    utils::{HashSet, HashMap},
+    utils::{HashMap, HashSet},
     window::WindowId,
 };
 use winit::window::Window;
@@ -93,7 +93,13 @@ impl RenderNode {
                     view: &render_target_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::GREEN),
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            // Magenta
+                            r: 1.0,
+                            g: 0.0,
+                            b: 1.0,
+                            a: 1.0,
+                        }),
                         store: true,
                     },
                 })],
@@ -103,11 +109,11 @@ impl RenderNode {
             for entity in visible_entities.iter() {
                 if let Some(render_function_id) = world.get::<RenderFunctionId>(*entity) {
                     let render = render_functions.get(render_function_id).unwrap();
-                    let render_result = (render)(camera_entity, *entity, world, &mut render_pass);
-                    match render_result {
-                        RenderResult::Success => info!("RenderResult::Success"),
-                        RenderResult::Failure => warn!("RenderResult::Failure"),
-                    }
+                    let _render_result = (render)(camera_entity, *entity, world, &mut render_pass);
+                    // match render_result {
+                    //     RenderResult::Success => info!("RenderResult::Success"),
+                    //     RenderResult::Failure => warn!("RenderResult::Failure"),
+                    // }
                 }
             }
         }
