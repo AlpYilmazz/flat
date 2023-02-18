@@ -4,15 +4,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use bevy::{
-    asset::HandleId,
-    ecs::{
-        event::{Event, EventId},
-        system::SystemParam,
-    },
-    prelude::*,
-    utils::HashSet,
-};
+use bevy::{asset::HandleId, ecs::system::SystemParam, prelude::*};
 
 // TODO: Maybe change to Vec
 //       Vec -> more cache friendly, worse removal
@@ -320,39 +312,3 @@ impl DerefMut for Location {
 pub trait LocationBound {
     fn get_location(&self) -> Location;
 }
-
-pub struct Consume<'e, E: Event> {
-    event: &'e E,
-    consumed: &'e mut HashSet<usize>,
-}
-
-impl<'e, E: Event> Consume<'e, E> {
-    pub fn consume(&mut self, event_id: EventId<E>) {
-        self.consumed.insert(event_id.id);
-    }
-}
-
-#[derive(SystemParam)]
-pub struct ConsumableEvents<'w, 's, E: Event> {
-    events: EventReader<'w, 's, E>,
-    #[system_param(ignore)]
-    consumed: HashSet<usize>,
-}
-
-impl<'w, 's, E: Event> ConsumableEvents<'w, 's, E> {
-    pub fn get_consume<'a>(&'a mut self, e: &'a E) -> Consume<'a, E> {
-        Consume { event: e, consumed: &mut self.consumed }
-    }
-    
-    // pub fn iter_with_id(
-    //     &mut self,
-    // ) -> impl DoubleEndedIterator<Item = (Consume<E>, EventId<E>)> + ExactSizeIterator<Item = (Consume<E>, EventId<E>)>
-    // {
-    //     self.events.iter_with_id().map(|(e, id)| (self.get_consume(e), id))
-    // }
-}
-
-// fn test<E: Event>(mut events: ConsumableEvents<E>) {
-//     for (event, event_id) in events.iter_with_id() {
-//     }
-// }

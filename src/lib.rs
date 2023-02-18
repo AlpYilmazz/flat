@@ -3,10 +3,8 @@ use bevy::{
     prelude::{App, Plugin, PluginGroup},
     DefaultPlugins,
 };
-use core_2d::FlatCore2dPlugin;
-use sprite::FlatSpritePlugin;
 
-pub mod core_2d;
+pub mod render;
 pub mod sprite;
 
 pub mod misc;
@@ -17,7 +15,7 @@ pub mod util;
 TypeUuid
 
 6948DF80-14BD-4E04-8842-7668D9C001F5 - Text
-4B8302DA-21AD-401F-AF45-1DFD956B80B5 - ShaderSource
+4B8302DA-21AD-401F-AF45-1DFD956B80B5 - Shader
 8628FE7C-A4E9-4056-91BD-FD6AA7817E39 - Mesh<V: MeshVertex>
 ED280816-E404-444A-A2D9-FFD2D171F928 - BatchMesh<V: MeshVertex>
 D952EB9F-7AD2-4B1B-B3CE-386735205990 - Quad
@@ -33,7 +31,7 @@ pub struct FlatEngineComplete;
 impl PluginGroup for FlatEngineComplete {
     fn build(self) -> PluginGroupBuilder {
         PluginGroupBuilder::start::<Self>()
-            .add(FlatBevyPlugins)
+            // .add(FlatBevyPlugins)
             .add(FlatEngineCore)
     }
 }
@@ -68,8 +66,5 @@ impl Plugin for BevyPluginSettings {
 
 pub struct FlatEngineCore;
 impl Plugin for FlatEngineCore {
-    fn build(&self, app: &mut App) {
-        app.add_plugin(FlatCore2dPlugin)
-            .add_plugin(FlatSpritePlugin);
-    }
+    fn build(&self, app: &mut App) {}
 }
