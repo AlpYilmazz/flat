@@ -1,265 +1,183 @@
-use std::collections::HashMap;
-
-use bevy_app::{App, CoreStage, Plugin};
-use bevy_asset::{AddAsset, Handle};
-use bevy_ecs::{
-    prelude::{Bundle, Component, Entity, EventReader},
-    schedule::{ParallelSystemDescriptorCoercion, StageLabel, SystemLabel, SystemStage},
-    system::{Res, ResMut},
-};
-use winit::dpi::PhysicalSize;
-
-use crate::{
-    transform::{GlobalTransform, Transform},
-    util::{AssetStore, EngineDefault, Refer, Store},
-    window::{
-        events::{WindowClosed, WindowCreated, WindowResized},
-        WindowId, Windows, WinitWindows,
+use bevy::{
+    asset::{Asset, HandleId},
+    prelude::{
+        AddAsset, App, AssetEvent, Assets, CoreStage, Deref, DerefMut, EventReader,
+        GlobalTransform, IntoSystemDescriptor, Plugin, Res, ResMut, Resource, StageLabel,
+        SystemStage,
     },
+    utils::HashMap,
+    window::Windows,
 };
 
 use self::{
-    camera::RenderCameraPlugin,
-    mesh::{extend::Quad, GpuMesh, Mesh},
-    resource::shader::{ShaderSource, ShaderSourceLoader},
-    resource::{buffer::Vertex, pipeline::RenderPipeline},
-    system::{AddRenderSystem, RenderAsset, RenderPlugin},
-    texture::GpuTexture,
-    transform::RenderTransformPlugin,
+    camera::FlatCameraPlugin,
+    color::Color,
+    mesh::Mesh,
+    resource::{
+        buffer::Vertex,
+        component_uniform::AddComponentUniform,
+        pipeline::{compile_shaders_into_pipelines, PipelineCache},
+        renderer::{RenderAdapter, RenderDevice, RenderInstance, RenderQueue},
+        shader::{Shader, ShaderLoader},
+    },
+    system::{render_system, RenderFunctions, RenderNode},
+    texture::{Image, ImageLoader},
+    view::window::FlatViewPlugin,
 };
 
 pub mod camera;
-pub mod command;
+pub mod color;
 pub mod mesh;
-pub mod mesh_bevy;
 pub mod resource;
 pub mod system;
 pub mod texture;
-pub mod transform;
+pub mod view;
 
 #[derive(StageLabel)]
 pub enum RenderStage {
-    Prepare,
-    Extract,
-    Render,
-    Present,
+    Prepare, // Prepare Resources and Entities for the rendering context: Image -> GpuTexture
+    Create,  // Create resources directly for rendering: GpuTexture -> BindGroup
+    Render,  // Render
+    Cleanup, // Cleanup
 }
-
-#[derive(SystemLabel)]
-pub struct SurfaceLifecycle;
-#[derive(SystemLabel)]
-pub struct SurfaceReconfigure;
 
 pub struct FlatRenderPlugin;
 impl Plugin for FlatRenderPlugin {
-    fn build(&self, app: &mut App) {
+    fn build(&self, app: &mut bevy::prelude::App) {
         app.add_stage_after(
-            CoreStage::Last,
+            CoreStage::PostUpdate,
             RenderStage::Prepare,
             SystemStage::parallel(),
         )
         .add_stage_after(
             RenderStage::Prepare,
-            RenderStage::Extract,
+            RenderStage::Create,
             SystemStage::parallel(),
         )
         .add_stage_after(
-            RenderStage::Extract,
+            RenderStage::Create,
             RenderStage::Render,
-            SystemStage::single_threaded(),
+            SystemStage::parallel().with_system(render_system.at_end()),
         )
         .add_stage_after(
-            RenderStage::Extract,
-            RenderStage::Present,
+            RenderStage::Render,
+            RenderStage::Cleanup,
             SystemStage::parallel(),
-        )
-        .init_resource::<DepthTextures>()
-        .init_resource::<Surfaces>()
-        .init_resource::<Store<RenderPipeline>>()
-        .init_resource::<AssetStore<Refer<RenderPipeline>>>()
-        .init_resource::<Store<wgpu::BindGroup>>()
-        .add_asset_loader(ShaderSourceLoader)
-        .add_asset::<ShaderSource>()
-        .add_system_to_stage(
-            RenderStage::Prepare,
-            create_surface_system.label(SurfaceLifecycle),
-        )
-        .add_system_to_stage(
-            RenderStage::Prepare,
-            destroy_surface_system.label(SurfaceLifecycle),
-        )
-        .add_system_to_stage(
-            RenderStage::Prepare,
-            reconfigure_surface_system
-                .label(SurfaceReconfigure)
-                .after(SurfaceLifecycle),
         );
 
+        app.init_resource::<RenderFunctions>()
+            .init_resource::<RenderNode>()
+            .init_resource::<PipelineCache>()
+            .init_asset_loader::<ShaderLoader>()
+            .init_asset_loader::<ImageLoader>()
+            // .init_asset_loader::<MeshLoader>()
+            .add_asset::<Shader>()
+            .add_render_asset::<Image>()
+            .add_render_asset::<Mesh<Vertex>>()
+            .add_component_uniform::<Color>()
+            .add_component_uniform::<GlobalTransform>()
+            .add_system_to_stage(RenderStage::Prepare, compile_shaders_into_pipelines);
+
+        app.add_plugin(FlatCameraPlugin).add_plugin(FlatViewPlugin);
+
         create_wgpu_resources(app);
-
-        // app.add_asset_extract::<Image>();
-
-        app.add_render_system::<GpuMesh>()
-            .add_plugin(RenderPlugin::<Mesh<Vertex>>::default())
-            .add_plugin(RenderPlugin::<Quad>::default())
-            .add_plugin(RenderCameraPlugin)
-            .add_plugin(RenderTransformPlugin);
-    }
-}
-
-#[derive(Component)]
-pub struct InstanceData(wgpu::Buffer, u32);
-
-pub struct DepthTexture(texture::GpuTexture);
-pub type DepthTextures = HashMap<WindowId, DepthTexture>;
-
-pub struct SurfaceKit {
-    pub surface: wgpu::Surface,
-    pub config: wgpu::SurfaceConfiguration,
-}
-pub type Surfaces = HashMap<WindowId, SurfaceKit>;
-
-#[derive(Bundle)]
-pub struct RenderEntityBundle<T: RenderAsset> {
-    pub pipeline: Refer<RenderPipeline>,
-    pub render_camera: RenderCamera,
-    pub global_transform: GlobalTransform,
-    pub transform: Transform,
-    pub render_asset: Handle<T>,
-}
-
-#[derive(Debug, Clone, Copy, Component)]
-pub struct RenderCamera(pub Entity);
-impl RenderCamera {
-    pub fn get(&self) -> Entity {
-        self.0
     }
 }
 
 ///
 /// Creates wgpu Instance, Device and Queue as World Resources.
 ///
-/// Creates wpgu Surfaces for initial windows.
+/// Creates wpgu Surface for initial primary window.
 ///
 pub fn create_wgpu_resources(app: &mut App) {
-    let winit_windows = app.world.get_resource::<WinitWindows>().unwrap();
-    let primary_window = winit_windows.map.get(&WindowId::primary());
+    let backends = wgpu::Backends::all();
+    let power_preference = wgpu::PowerPreference::HighPerformance;
+    let features = wgpu::Features::empty();
+    let limits = if cfg!(target_arch = "wasm32") {
+        wgpu::Limits::downlevel_webgl2_defaults()
+    } else {
+        wgpu::Limits::default()
+    };
 
-    let instance = wgpu::Instance::new(wgpu::Backends::all());
-    let surface = primary_window.map(|window| unsafe { instance.create_surface(window) });
-    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::HighPerformance,
-        force_fallback_adapter: false,
-        compatible_surface: surface.as_ref(),
-    }))
-    .unwrap();
+    let windows = app.world.resource::<Windows>();
+    let instance = wgpu::Instance::new(backends);
 
-    let (device, queue) = pollster::block_on(adapter.request_device(
+    let surface = windows
+        .get_primary()
+        .and_then(|window| window.raw_handle())
+        .map(|wrapper| unsafe {
+            let handle = wrapper.get_handle();
+            instance.create_surface(&handle)
+        });
+
+    let adapter =
+        futures_lite::future::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference,
+            compatible_surface: surface.as_ref(),
+            ..Default::default()
+        }))
+        .unwrap();
+
+    let (device, queue) = futures_lite::future::block_on(adapter.request_device(
         &wgpu::DeviceDescriptor {
             label: None,
-            features: wgpu::Features::empty() | wgpu::Features::TEXTURE_BINDING_ARRAY,
-            limits: if cfg!(target_arch = "wasm32") {
-                wgpu::Limits::downlevel_webgl2_defaults()
-            } else {
-                wgpu::Limits::default()
-            },
+            features,
+            limits,
         },
         None, // trace_path
     ))
     .unwrap();
 
-    app.insert_resource(instance)
-        .insert_resource(device)
-        .insert_resource(queue);
+    app.insert_resource(RenderInstance(instance))
+        .insert_resource(RenderAdapter(adapter))
+        .insert_resource(RenderQueue(queue))
+        .insert_resource(RenderDevice(device));
 }
 
-pub type CommandBuffers = Vec<wgpu::CommandBuffer>;
-pub type SurfaceTextures = Vec<(WindowId, wgpu::SurfaceTexture, wgpu::TextureView)>;
+pub trait AddRenderAsset {
+    fn add_render_asset<T: RenderAsset>(&mut self) -> &mut Self;
+}
+impl AddRenderAsset for App {
+    fn add_render_asset<T: RenderAsset>(&mut self) -> &mut Self {
+        self.add_asset::<T>()
+            .init_resource::<RenderAssets<T>>()
+            .add_system_to_stage(RenderStage::Prepare, prepare_render_assets::<T>)
+    }
+}
 
-pub fn reconfigure_surface_system(
-    device: Res<wgpu::Device>,
-    mut surfaces: ResMut<Surfaces>,
-    mut depth_textures: ResMut<DepthTextures>,
-    mut window_resize_events: EventReader<WindowResized>,
+pub trait RenderAsset: Asset {
+    type PreparedAsset: Send + Sync + 'static;
+
+    fn prepare(&self, render_device: &RenderDevice, queue: &RenderQueue) -> Self::PreparedAsset;
+}
+
+#[derive(Resource, Deref, DerefMut)]
+pub struct RenderAssets<T: RenderAsset>(pub HashMap<HandleId, T::PreparedAsset>);
+
+impl<T: RenderAsset> Default for RenderAssets<T> {
+    fn default() -> Self {
+        Self(HashMap::new())
+    }
+}
+
+pub fn prepare_render_assets<T: RenderAsset>(
+    render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
+    assets: Res<Assets<T>>,
+    mut render_assets: ResMut<RenderAssets<T>>,
+    mut asset_events: EventReader<AssetEvent<T>>,
 ) {
-    for WindowResized {
-        id: window_id,
-        new_size,
-    } in window_resize_events.iter()
-    {
-        if new_size.width > 0 && new_size.height > 0 {
-            let SurfaceKit { surface, config } = surfaces.get_mut(window_id).unwrap();
-            config.width = new_size.width;
-            config.height = new_size.height;
-            surface.configure(&device, config);
-
-            let depth_texture = depth_textures.get_mut(window_id);
-            depth_texture.map(|dt| {
-                *dt = DepthTexture(GpuTexture::create_depth_texture(&device, config, None));
-            });
+    for event in asset_events.iter() {
+        match event {
+            AssetEvent::Created { handle } | AssetEvent::Modified { handle } => {
+                let handle_id = handle.id();
+                if let Some(asset) = assets.get(handle) {
+                    render_assets.insert(handle_id, asset.prepare(&render_device, &render_queue));
+                }
+            }
+            AssetEvent::Removed { handle } => {
+                render_assets.remove(&handle.id());
+            }
         }
-    }
-}
-
-pub fn create_surface_system(
-    device: Res<wgpu::Device>,
-    instance: Res<wgpu::Instance>,
-    mut surfaces: ResMut<Surfaces>,
-    mut depth_textures: ResMut<DepthTextures>,
-    windows: Res<Windows>,
-    mut window_created_events: EventReader<WindowCreated>,
-) {
-    for WindowCreated { id: window_id } in window_created_events.iter() {
-        let window = windows.map.get(window_id).unwrap();
-        let raw_window = &window.raw_window_handle;
-
-        let size = window.physical_size;
-
-        let surface_kit =
-            unsafe { create_surface(&instance, &device, &raw_window.get_handle(), size) };
-
-        depth_textures.insert(
-            window_id.clone(),
-            DepthTexture(GpuTexture::create_depth_texture(
-                &device,
-                &surface_kit.config,
-                None,
-            )),
-        );
-
-        surfaces.insert(window_id.clone(), surface_kit);
-    }
-}
-
-unsafe fn create_surface<W>(
-    instance: &wgpu::Instance,
-    device: &wgpu::Device,
-    window: &W,
-    size: PhysicalSize<u32>,
-) -> SurfaceKit
-where
-    W: raw_window_handle::HasRawWindowHandle,
-{
-    let surface = instance.create_surface(window);
-    let config = wgpu::SurfaceConfiguration {
-        usage: wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::RENDER_ATTACHMENT,
-        format: wgpu::TextureFormat::engine_default(),
-        width: size.width,
-        height: size.height,
-        present_mode: wgpu::PresentMode::Fifo,
-    };
-    surface.configure(&device, &config);
-
-    SurfaceKit { surface, config }
-}
-
-pub fn destroy_surface_system(
-    mut surfaces: ResMut<Surfaces>,
-    mut depth_textures: ResMut<DepthTextures>,
-    mut window_closed_events: EventReader<WindowClosed>,
-) {
-    for WindowClosed { id: window_id } in window_closed_events.iter() {
-        surfaces.remove(window_id);
-        depth_textures.remove(window_id);
     }
 }

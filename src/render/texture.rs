@@ -1,29 +1,22 @@
 use anyhow::*;
-use bevy_asset::{AssetLoader, LoadedAsset};
-use bevy_reflect::TypeUuid;
+use bevy::asset::{AssetLoader, LoadedAsset};
+use bevy::reflect::TypeUuid;
 use image::{DynamicImage, GenericImageView};
 
-use crate::{render::{
-    resource::bind::{
-        Binding, BindingDesc, BindingLayoutEntry, IntoBindingSet,
-        IntoBindingSetDesc,
-    },
-    system::RenderAsset,
-}, util::{Label, Labeled, LocationBound, Location}};
-
-use super::resource::bind::{InnerBindingSet, BindingSet};
+use super::{RenderAsset, RenderDevice, RenderQueue};
 
 #[derive(TypeUuid)]
 #[uuid = "3F897E85-62CE-4B2C-A957-FCF0CCE649FD"]
 pub struct Image(pub DynamicImage);
 
+#[derive(Default)]
 pub struct ImageLoader;
 impl AssetLoader for ImageLoader {
     fn load<'a>(
         &'a self,
         bytes: &'a [u8],
-        load_context: &'a mut bevy_asset::LoadContext,
-    ) -> bevy_asset::BoxedFuture<'a, Result<(), Error>> {
+        load_context: &'a mut bevy::asset::LoadContext,
+    ) -> bevy::asset::BoxedFuture<'a, Result<(), Error>> {
         Box::pin(async {
             let img = image::load_from_memory(bytes)?;
             load_context.set_default_asset(LoadedAsset::new(Image(img)));
@@ -38,22 +31,15 @@ impl AssetLoader for ImageLoader {
 }
 
 impl RenderAsset for Image {
-    type ExtractedAsset = GpuTexture;
+    type PreparedAsset = GpuTexture;
 
-    fn extract(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> Self::ExtractedAsset {
+    fn prepare(&self, device: &RenderDevice, queue: &RenderQueue) -> Self::PreparedAsset {
         let rgba = self.0.to_rgba8();
         let dim = self.0.dimensions();
         let raw_img = RawImage::new(&rgba, dim, PixelFormat::RGBA8);
         GpuTexture::from_raw_image(device, queue, &raw_img, None).unwrap()
     }
 }
-
-// pub struct RenderImagePlugin;
-// impl Plugin for RenderImagePlugin {
-//     fn build(&self, app: &mut bevy_app::App) {
-        
-//     }
-// }
 
 pub enum PixelFormat {
     G8,
@@ -106,7 +92,6 @@ impl<'a> RawImage<'a> {
 }
 
 pub struct GpuTexture {
-    pub bind_location: Location,
     pub texture: wgpu::Texture,
     pub view: wgpu::TextureView,
     pub sampler: wgpu::Sampler,
@@ -118,8 +103,8 @@ impl GpuTexture {
     }
 
     pub fn from_bytes(
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        device: &RenderDevice,
+        queue: &RenderQueue,
         bytes: &[u8],
         label: &str,
     ) -> Result<Self> {
@@ -131,8 +116,8 @@ impl GpuTexture {
     }
 
     pub fn from_raw_image(
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        device: &RenderDevice,
+        queue: &RenderQueue,
         raw_img: &RawImage,
         label: Option<&str>,
     ) -> Result<Self> {
@@ -188,7 +173,6 @@ impl GpuTexture {
         });
 
         Ok(Self {
-            bind_location: Location(0),
             texture,
             view,
             sampler,
@@ -198,7 +182,7 @@ impl GpuTexture {
     pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float; // 1.
 
     pub fn create_depth_texture(
-        device: &wgpu::Device,
+        device: &RenderDevice,
         config: &wgpu::SurfaceConfiguration,
         label: Option<&str>,
     ) -> Self {
@@ -236,107 +220,9 @@ impl GpuTexture {
         });
 
         Self {
-            bind_location: Location(0),
             texture,
             view,
             sampler,
         }
-    }
-
-    pub fn get_inner_binding_set(&self) -> (&wgpu::TextureView, &wgpu::Sampler) {
-        (&self.view, &self.sampler)
-    }
-}
-
-impl LocationBound for GpuTexture {
-    fn get_location(&self) -> Location {
-        self.bind_location
-    }
-}
-
-impl Binding for wgpu::TextureView {
-    type Desc = TextureViewDesc;
-
-    fn get_resource<'a>(&'a self) -> wgpu::BindingResource<'a> {
-        wgpu::BindingResource::TextureView(self)
-    }
-}
-
-#[derive(Default)]
-pub struct TextureViewDesc {}
-impl BindingDesc for TextureViewDesc {
-    fn get_layout_entry(&self) -> BindingLayoutEntry {
-        BindingLayoutEntry {
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                view_dimension: wgpu::TextureViewDimension::D2,
-                multisampled: false,
-            },
-            count: None,
-        }
-    }
-}
-
-impl Binding for wgpu::Sampler {
-    type Desc = SamplerDesc;
-
-    fn get_resource<'a>(&'a self) -> wgpu::BindingResource<'a> {
-        wgpu::BindingResource::Sampler(self)
-    }
-}
-
-#[derive(Default)]
-pub struct SamplerDesc {}
-impl BindingDesc for SamplerDesc {
-    fn get_layout_entry(&self) -> BindingLayoutEntry {
-        BindingLayoutEntry {
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-            count: None,
-        }
-    }
-}
-
-impl BindingSet for GpuTexture {
-    type SetDesc = (TextureViewDesc, SamplerDesc);
-
-    fn into_bind_group(&self, device: &wgpu::Device, desc: &Self::SetDesc) -> wgpu::BindGroup {
-        (&self.view, &self.sampler).into_bind_group(device, desc)
-    }
-}
-
-// impl InnerBindingSet for GpuTexture {
-//     type InnerDesc = (TextureViewDesc, SamplerDesc);
-
-//     fn extract_bind_group(&self, device: &wgpu::Device, desc: &Self::InnerDesc) -> wgpu::BindGroup {
-//         (&self.view, &self.sampler).into_bind_group(device, desc)
-//     }
-// }
-// impl<'a> AsBindingSet<'a> for GpuTexture {
-//     type Set = (&'a wgpu::TextureView, &'a wgpu::Sampler);
-
-//     fn as_binding_set(&'a self) -> Self::Set {
-//         (&self.view, &self.sampler)
-//     }
-// }
-impl<'a> IntoBindingSet for &'a GpuTexture {
-    type Set = (&'a wgpu::TextureView, &'a wgpu::Sampler);
-
-    fn into_binding_set(self) -> Self::Set {
-        (&self.view, &self.sampler)
-    }
-}
-
-#[derive(Default)]
-pub struct TextureDesc {
-    pub view: TextureViewDesc,
-    pub sampler: SamplerDesc,
-}
-impl<'a> IntoBindingSetDesc for TextureDesc {
-    type SetDesc = (TextureViewDesc, SamplerDesc);
-
-    fn into_binding_set_desc(self) -> Self::SetDesc {
-        (self.view, self.sampler)
     }
 }

@@ -1,15 +1,11 @@
-use bevy_ecs::prelude::Component;
-use bevy_reflect::TypeUuid;
-use wgpu::util::DeviceExt;
+use bevy::{prelude::Component, reflect::TypeUuid};
 
 use super::{
-    resource::buffer::{FromRawVertex, Indices, MeshVertex},
-    system::{RenderAsset, Draw},
+    resource::buffer::{Indices, MeshVertex},
+    RenderAsset, RenderDevice, RenderQueue,
 };
 
-pub mod extend;
 pub mod primitive;
-pub mod util;
 
 pub struct Model<V: MeshVertex> {
     pub meshes: Vec<Mesh<V>>,
@@ -24,8 +20,6 @@ pub struct Mesh<V: MeshVertex> {
 }
 
 impl<V: MeshVertex> Mesh<V> {
-    const ZERO: f32 = 0.0;
-
     pub fn new(primitive_topology: wgpu::PrimitiveTopology) -> Self {
         Self {
             primitive_topology,
@@ -44,65 +38,6 @@ impl<V: MeshVertex> Mesh<V> {
             vertices,
             indices,
         }
-    }
-
-    pub fn load_obj(filepath: &str) -> Model<V>
-    where
-        V: FromRawVertex,
-    {
-        let (models, _) = tobj::load_obj(filepath, &tobj::GPU_LOAD_OPTIONS)
-            .expect("Obj file could not be loaded");
-
-        let meshes: Vec<Mesh<V>> = models
-            .into_iter()
-            .map(|model| {
-                let vertices: Vec<V> = (0..model.mesh.positions.len() / 3)
-                    .into_iter()
-                    .map(|i| {
-                        V::from_raw(
-                            &model.mesh.positions.as_slice()[i..i + 3]
-                                .try_into()
-                                .unwrap(),
-                            &[
-                                *model.mesh.texcoords.get(i).unwrap_or(&Self::ZERO),
-                                *model.mesh.texcoords.get(i + 1).unwrap_or(&Self::ZERO),
-                            ],
-                            &[
-                                *model.mesh.normals.get(i).unwrap_or(&Self::ZERO),
-                                *model.mesh.normals.get(i + 1).unwrap_or(&Self::ZERO),
-                                *model.mesh.normals.get(i + 2).unwrap_or(&Self::ZERO),
-                            ],
-                            &[
-                                *model.mesh.vertex_color.get(i).unwrap_or(&Self::ZERO),
-                                *model.mesh.vertex_color.get(i + 1).unwrap_or(&Self::ZERO),
-                                *model.mesh.vertex_color.get(i + 2).unwrap_or(&Self::ZERO),
-                            ],
-                            // &[0.0, 0.0],
-                            // &[0.0, 0.0, 0.0],
-                            // &[0.0, 0.0, 0.0],
-                            // &model.mesh.texcoords.as_slice()[i..i+2].try_into().unwrap_or([0.0, 0.0]),
-                            // &model.mesh.normals.as_slice()[i..i+3].try_into().unwrap_or([0.0, 0.0, 0.0]),
-                            // &model.mesh.vertex_color.as_slice()[i..i+3].try_into().unwrap_or([0.0, 0.0, 0.0]),
-                        )
-                    })
-                    .collect();
-
-                // V::from_raw(
-                //     &model.mesh.positions,
-                //     &model.mesh.texcoords,
-                //     &model.mesh.normals,
-                //     &model.mesh.vertex_color
-                // );
-
-                Self::new_with(
-                    wgpu::PrimitiveTopology::TriangleList,
-                    vertices,
-                    Some(Indices::U32(model.mesh.indices)),
-                )
-            })
-            .collect();
-
-        Model { meshes }
     }
 
     pub fn get_vertices(&self) -> &[V] {
@@ -250,7 +185,7 @@ pub struct GpuMesh {
 }
 
 impl GpuMesh {
-    pub fn from_mesh<V, M>(device: &wgpu::Device, mesh: M) -> GpuMesh
+    pub fn from_mesh<V, M>(render_device: &RenderDevice, mesh: M) -> GpuMesh
     where
         V: MeshVertex,
         M: AsRef<Mesh<V>>,
@@ -258,14 +193,14 @@ impl GpuMesh {
         let mesh: &Mesh<V> = mesh.as_ref();
         GpuMesh {
             vertex_buffer_layout: mesh.get_vertex_buffer_layout(),
-            vertex_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            vertex_buffer: render_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Vertex Buffer"),
                 contents: &mesh.get_vertex_buffer_bytes(),
                 usage: wgpu::BufferUsages::VERTEX,
             }),
             assembly: match mesh.get_index_buffer_bytes() {
                 Some(indices) => GpuMeshAssembly::Indexed {
-                    index_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    index_buffer: render_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                         label: Some("Index Buffer"),
                         contents: indices,
                         usage: wgpu::BufferUsages::INDEX,
@@ -283,46 +218,18 @@ impl GpuMesh {
 }
 
 impl<V: MeshVertex> RenderAsset for Mesh<V> {
-    type ExtractedAsset = GpuMesh;
+    type PreparedAsset = GpuMesh;
 
-    fn extract(&self, device: &wgpu::Device, _queue: &wgpu::Queue) -> Self::ExtractedAsset {
-        GpuMesh::from_mesh(&device, self)
+    fn prepare(&self, render_device: &RenderDevice, _queue: &RenderQueue) -> Self::PreparedAsset {
+        GpuMesh::from_mesh(render_device, self)
     }
 }
 
 impl<V: MeshVertex> RenderAsset for BatchMesh<V> {
-    type ExtractedAsset = GpuMesh;
+    type PreparedAsset = GpuMesh;
 
-    fn extract(&self, device: &wgpu::Device, _queue: &wgpu::Queue) -> Self::ExtractedAsset {
-        GpuMesh::from_mesh(&device, self)
+    fn prepare(&self, render_device: &RenderDevice, _queue: &RenderQueue) -> Self::PreparedAsset {
+        GpuMesh::from_mesh(render_device, self)
     }
 }
 
-impl Draw for GpuMesh {
-    fn draw<'a>(
-        &'a self,
-        render_pass: &mut wgpu::RenderPass<'a>,
-        instance_data: Option<&'a super::InstanceData>,
-    ) {
-        let mut instance_count = 1;
-        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        if let Some(instance_data) = instance_data {
-            render_pass.set_vertex_buffer(1, instance_data.0.slice(..));
-            instance_count = instance_data.1;
-        }
-
-        match &self.assembly {
-            GpuMeshAssembly::Indexed {
-                index_buffer,
-                index_count,
-                index_format,
-            } => {
-                render_pass.set_index_buffer(index_buffer.slice(..), *index_format);
-                render_pass.draw_indexed(0..*index_count as u32, 0, 0..instance_count);
-            }
-            GpuMeshAssembly::NonIndexed { vertex_count } => {
-                render_pass.draw(0..*vertex_count as u32, 0..instance_count);
-            }
-        }
-    }
-}

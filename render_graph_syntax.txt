@@ -1,0 +1,15 @@
+
+node_impl MainPass2dNode = flat::core_2d::MainPass2dNode::new(world);
+
+INPUT node in_view {
+    entity: Entity,
+}
+
+node test_node_1 {
+
+}
+
+node (test_node_1,) -> main_render_2d {
+    in(in_view.entity) in_view: Entity,
+} : MainPass2dNode;
+

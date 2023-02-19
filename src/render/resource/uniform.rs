@@ -1,21 +1,269 @@
-use std::marker::PhantomData;
+// DISCLAIMER: COPIED FROM BEVY
 
-use bevy_ecs::{
-    prelude::Component,
-    world::{FromWorld, World},
+use std::{marker::PhantomData, ops::{Deref, DerefMut}};
+
+use bevy::prelude::Component;
+use encase::{
+    internal::WriteInto, DynamicUniformBuffer as DynamicUniformBufferWrapper, ShaderType,
+    UniformBuffer as UniformBufferWrapper,
 };
-use bytemuck::{Pod, Zeroable};
-use repr_trait::C;
-use wgpu::util::DeviceExt;
 
-use super::bind::{Binding, BindingDesc, BindingLayoutEntry};
+use crate::render::{RenderDevice, RenderQueue};
 
-pub trait GpuUniform: C + Pod + Zeroable + Send + Sync + 'static {
-    const STAGE: wgpu::ShaderStages;
+/// Stores data to be transferred to the GPU and made accessible to shaders as a uniform buffer.
+///
+/// Uniform buffers are available to shaders on a read-only basis. Uniform buffers are commonly used to make available to shaders
+/// parameters that are constant during shader execution, and are best used for data that is relatively small in size as they are
+/// only guaranteed to support up to 16kB per binding.
+///
+/// The contained data is stored in system RAM. [`write_buffer`](crate::render_resource::UniformBuffer::write_buffer) queues
+/// copying of the data from system RAM to VRAM. Data in uniform buffers must follow [std140 alignment/padding requirements],
+/// which is automatically enforced by this structure. Per the WGPU spec, uniform buffers cannot store runtime-sized array
+/// (vectors), or structures with fields that are vectors.
+///
+/// Other options for storing GPU-accessible data are:
+/// * [`DynamicUniformBuffer`](crate::render_resource::DynamicUniformBuffer)
+/// * [`StorageBuffer`](crate::render_resource::StorageBuffer)
+/// * [`DynamicStorageBuffer`](crate::render_resource::DynamicStorageBuffer)
+/// * [`BufferVec`](crate::render_resource::BufferVec)
+/// * [`Texture`](crate::render_resource::Texture)
+///
+/// [std140 alignment/padding requirements]: https://www.w3.org/TR/WGSL/#address-spaces-uniform
+pub struct UniformBuffer<T: ShaderType> {
+    value: T,
+    scratch: UniformBufferWrapper<Vec<u8>>,
+    buffer: Option<wgpu::Buffer>,
+    label: Option<String>,
+    label_changed: bool,
+}
+
+impl<T: ShaderType> From<T> for UniformBuffer<T> {
+    fn from(value: T) -> Self {
+        Self {
+            value,
+            scratch: UniformBufferWrapper::new(Vec::new()),
+            buffer: None,
+            label: None,
+            label_changed: false,
+        }
+    }
+}
+
+impl<T: ShaderType + Default> Default for UniformBuffer<T> {
+    fn default() -> Self {
+        Self {
+            value: T::default(),
+            scratch: UniformBufferWrapper::new(Vec::new()),
+            buffer: None,
+            label: None,
+            label_changed: false,
+        }
+    }
+}
+
+impl<T: ShaderType + WriteInto> UniformBuffer<T> {
+    #[inline]
+    pub fn buffer(&self) -> Option<&wgpu::Buffer> {
+        self.buffer.as_ref()
+    }
+
+    #[inline]
+    pub fn binding(&self) -> Option<wgpu::BindingResource> {
+        Some(wgpu::BindingResource::Buffer(
+            self.buffer()?.as_entire_buffer_binding(),
+        ))
+    }
+
+    /// Set the data the buffer stores.
+    pub fn set(&mut self, value: T) {
+        self.value = value;
+    }
+
+    pub fn get(&self) -> &T {
+        &self.value
+    }
+
+    pub fn get_mut(&mut self) -> &mut T {
+        &mut self.value
+    }
+
+    pub fn set_label(&mut self, label: Option<&str>) {
+        let label = label.map(str::to_string);
+
+        if label != self.label {
+            self.label_changed = true;
+        }
+
+        self.label = label;
+    }
+
+    pub fn get_label(&self) -> Option<&str> {
+        self.label.as_deref()
+    }
+
+    /// Queues writing of data from system RAM to VRAM using the [`RenderDevice`](crate::renderer::RenderDevice)
+    /// and the provided [`RenderQueue`](crate::renderer::RenderQueue), if a GPU-side backing buffer already exists.
+    ///
+    /// If a GPU-side buffer does not already exist for this data, such a buffer is initialized with currently
+    /// available data.
+    pub fn write_buffer(&mut self, device: &RenderDevice, queue: &RenderQueue) {
+        self.scratch.write(&self.value).unwrap();
+
+        if self.label_changed || self.buffer.is_none() {
+            self.buffer = Some(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: self.label.as_deref(),
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
+                contents: self.scratch.as_ref(),
+            }));
+            self.label_changed = false;
+        } else if let Some(buffer) = &self.buffer {
+            queue.write_buffer(buffer, 0, self.scratch.as_ref());
+        }
+    }
+}
+
+/// Stores data to be transferred to the GPU and made accessible to shaders as a dynamic uniform buffer.
+///
+/// Dynamic uniform buffers are available to shaders on a read-only basis. Dynamic uniform buffers are commonly used to make
+/// available to shaders runtime-sized arrays of parameters that are otherwise constant during shader execution, and are best
+/// suited to data that is relatively small in size as they are only guaranteed to support up to 16kB per binding.
+///
+/// The contained data is stored in system RAM. [`write_buffer`](crate::render_resource::DynamicUniformBuffer::write_buffer) queues
+/// copying of the data from system RAM to VRAM. Data in uniform buffers must follow [std140 alignment/padding requirements],
+/// which is automatically enforced by this structure. Per the WGPU spec, uniform buffers cannot store runtime-sized array
+/// (vectors), or structures with fields that are vectors.
+///
+/// Other options for storing GPU-accessible data are:
+/// * [`StorageBuffer`](crate::render_resource::StorageBuffer)
+/// * [`DynamicStorageBuffer`](crate::render_resource::DynamicStorageBuffer)
+/// * [`UniformBuffer`](crate::render_resource::UniformBuffer)
+/// * [`DynamicUniformBuffer`](crate::render_resource::DynamicUniformBuffer)
+/// * [`Texture`](crate::render_resource::Texture)
+///
+/// [std140 alignment/padding requirements]: https://www.w3.org/TR/WGSL/#address-spaces-uniform
+pub struct DynamicUniformBuffer<T: ShaderType> {
+    values: Vec<T>,
+    scratch: DynamicUniformBufferWrapper<Vec<u8>>,
+    buffer: Option<wgpu::Buffer>,
+    capacity: usize,
+    label: Option<String>,
+    label_changed: bool,
+}
+
+impl<T: ShaderType> Default for DynamicUniformBuffer<T> {
+    fn default() -> Self {
+        Self {
+            values: Vec::new(),
+            scratch: DynamicUniformBufferWrapper::new(Vec::new()),
+            buffer: None,
+            capacity: 0,
+            label: None,
+            label_changed: false,
+        }
+    }
+}
+
+impl<T: ShaderType + WriteInto> DynamicUniformBuffer<T> {
+    #[inline]
+    pub fn buffer(&self) -> Option<&wgpu::Buffer> {
+        self.buffer.as_ref()
+    }
+
+    #[inline]
+    pub fn binding(&self) -> Option<wgpu::BindingResource> {
+        Some(wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+            buffer: self.buffer()?,
+            offset: 0,
+            size: Some(T::min_size()),
+        }))
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.values.len()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty()
+    }
+
+    /// Push data into the `DynamicUniformBuffer`'s internal vector (residing on system RAM).
+    #[inline]
+    pub fn push(&mut self, value: T) -> u32 {
+        let offset = self.scratch.write(&value).unwrap() as u32;
+        self.values.push(value);
+        offset
+    }
+
+    pub fn set_label(&mut self, label: Option<&str>) {
+        let label = label.map(str::to_string);
+
+        if label != self.label {
+            self.label_changed = true;
+        }
+
+        self.label = label;
+    }
+
+    pub fn get_label(&self) -> Option<&str> {
+        self.label.as_deref()
+    }
+
+    /// Queues writing of data from system RAM to VRAM using the [`RenderDevice`](crate::renderer::RenderDevice)
+    /// and the provided [`RenderQueue`](crate::renderer::RenderQueue).
+    ///
+    /// If there is no GPU-side buffer allocated to hold the data currently stored, or if a GPU-side buffer previously
+    /// allocated does not have enough capacity, a new GPU-side buffer is created.
+    #[inline]
+    pub fn write_buffer(&mut self, device: &RenderDevice, queue: &RenderQueue) {
+        let size = self.scratch.as_ref().len();
+
+        if self.capacity < size || self.label_changed {
+            self.buffer = Some(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: self.label.as_deref(),
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
+                contents: self.scratch.as_ref(),
+            }));
+            self.capacity = size;
+            self.label_changed = false;
+        } else if let Some(buffer) = &self.buffer {
+            queue.write_buffer(buffer, 0, self.scratch.as_ref());
+        }
+    }
+
+    #[inline]
+    pub fn clear(&mut self) {
+        self.values.clear();
+        self.scratch.as_mut().clear();
+        self.scratch.set_offset(0);
+    }
+}
+
+// -- Bevy Copy End --
+
+#[derive(Component)]
+pub struct DynamicUniformId<T: ShaderType>(pub u32, PhantomData<T>);
+impl<T: ShaderType> Deref for DynamicUniformId<T> {
+    type Target = u32;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl<T: ShaderType> DerefMut for DynamicUniformId<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+impl<T: ShaderType> From<u32> for DynamicUniformId<T> {
+    fn from(value: u32) -> Self {
+        Self(value, PhantomData)
+    }
 }
 
 pub trait HandleGpuUniform {
-    type GU: GpuUniform;
+    type GU: ShaderType + WriteInto + Send + Sync + 'static;
 
     fn generate_uniform(&self) -> Self::GU
     where
@@ -25,139 +273,10 @@ pub trait HandleGpuUniform {
         self.update_uniform(&mut gpu_uniform);
         gpu_uniform
     }
-
-    fn update_uniform(&self, gpu_uniform: &mut Self::GU);
-}
-
-#[derive(Component)]
-pub struct Uniform<H>
-where
-    H: HandleGpuUniform,
-{
-    pub gpu_uniform: H::GU,
-    buffer: UniformBuffer<H::GU>,
-    _uniform_repr: PhantomData<H>,
-}
-
-impl<H> FromWorld for Uniform<H>
-where
-    H: HandleGpuUniform,
-    H::GU: Default,
-{
-    fn from_world(world: &mut World) -> Self {
-        let device = world
-            .get_resource::<wgpu::Device>()
-            .expect("Render device not found in the world");
-        Self::new_default(device)
-    }
-}
-
-impl<H: HandleGpuUniform> Uniform<H> {
-    pub fn new(device: &wgpu::Device, gpu_uniform: H::GU) -> Self {
-        let buffer = UniformBuffer::new_init(device, gpu_uniform);
-        Self {
-            gpu_uniform,
-            buffer,
-            _uniform_repr: PhantomData,
-        }
+    
+    fn update_uniform(&self, gpu_uniform: &mut Self::GU) {
+        *gpu_uniform = self.into_uniform();
     }
 
-    pub fn new_default(device: &wgpu::Device) -> Self
-    where
-        H::GU: Default,
-    {
-        Self::new(device, H::GU::default())
-    }
-
-    pub fn sync_buffer(&self, queue: &wgpu::Queue) {
-        self.buffer.update(queue, self.gpu_uniform);
-    }
-}
-
-impl<H: HandleGpuUniform> AsRef<Self> for Uniform<H> {
-    fn as_ref(&self) -> &Self {
-        self
-    }
-}
-
-impl<H: HandleGpuUniform> Binding for Uniform<H> {
-    type Desc = UniformDesc<H::GU>;
-
-    fn get_resource<'a>(&'a self) -> wgpu::BindingResource<'a> {
-        self.buffer.get_resource()
-    }
-}
-
-pub struct UniformDesc<T: GpuUniform> {
-    stage: wgpu::ShaderStages,
-    _marker: PhantomData<fn() -> T>,
-}
-impl<T: GpuUniform> UniformDesc<T> {
-    pub fn new(stage: wgpu::ShaderStages) -> Self {
-        Self {
-            stage,
-            _marker: PhantomData,
-        }
-    }
-}
-impl<T: GpuUniform> Default for UniformDesc<T> {
-    fn default() -> Self {
-        Self::new(T::STAGE)
-    }
-}
-impl<T: GpuUniform> AsRef<Self> for UniformDesc<T> {
-    fn as_ref(&self) -> &Self {
-        self
-    }
-}
-impl<T: GpuUniform> BindingDesc for UniformDesc<T> {
-    fn get_layout_entry(&self) -> BindingLayoutEntry {
-        BindingLayoutEntry {
-            visibility: self.stage,
-            ty: wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Uniform,
-                has_dynamic_offset: false,
-                min_binding_size: None,
-            },
-            count: None,
-        }
-    }
-}
-
-pub struct UniformBuffer<T: GpuUniform> {
-    // stage: wgpu::ShaderStages,
-    buffer: wgpu::Buffer,
-    _marker: PhantomData<T>,
-}
-
-impl<T: GpuUniform> UniformBuffer<T> {
-    pub fn new_init(device: &wgpu::Device, init: T) -> Self {
-        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: None,
-            contents: bytemuck::cast_slice(&[init]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-        Self {
-            buffer,
-            _marker: PhantomData,
-        }
-    }
-
-    pub fn update(&self, queue: &wgpu::Queue, val: T) {
-        queue.write_buffer(&self.buffer, 0, bytemuck::cast_slice(&[val]));
-    }
-}
-
-impl<T: GpuUniform> AsRef<Self> for UniformBuffer<T> {
-    fn as_ref(&self) -> &Self {
-        self
-    }
-}
-
-impl<T: GpuUniform> Binding for UniformBuffer<T> {
-    type Desc = UniformDesc<T>;
-
-    fn get_resource<'a>(&'a self) -> wgpu::BindingResource<'a> {
-        self.buffer.as_entire_binding()
-    }
+    fn into_uniform(&self) -> Self::GU;
 }

@@ -1,352 +1,258 @@
-use std::{
-    any::TypeId,
-    collections::HashMap,
-    marker::PhantomData,
-    ops::{Deref, DerefMut},
-};
+use core::panic;
 
-use bevy_app::{App, Plugin};
-use bevy_asset::{AddAsset, Asset, AssetEvent, Assets, Handle, HandleId};
-use bevy_ecs::{
-    prelude::{Component, Entity, EventReader, Bundle},
-    query::{Added, Changed, With},
-    system::{Commands, Query, RemovedComponents, Res, ResMut, SystemParam, lifetimeless::{SQuery, Read}, SystemParamItem, StaticSystemParam},
+use bevy::{
+    ecs::system::lifetimeless::Read,
+    prelude::{
+        App, Component, Entity, FromWorld, GlobalTransform, Handle, Mut, QueryState, Resource,
+        Transform, With, World,
+    },
+    utils::{HashMap, HashSet},
+    window::WindowId,
 };
-
-use crate::{
-    transform::GlobalTransform,
-    util::{AssetStore, Location, LocationBound, Refer, Sink, Store},
-};
+use winit::window::Window;
 
 use super::{
-    camera::{ExtractedCameras, Visible},
-    mesh::GpuMesh,
-    resource::{bind::{InnerBindingSet, BindingSet}, pipeline::RenderPipeline},
-    transform::ExtractedTransform,
-    DepthTextures, InstanceData, RenderCamera, RenderStage, SurfaceKit, Surfaces,
+    camera::component::*, color::Color, mesh::Mesh, resource::buffer::MeshVertex, texture::Image,
+    view::window::PreparedWindows, RenderAssets, RenderDevice, RenderInstance, RenderQueue,
 };
 
-pub trait AddAssetExtract {
-    fn add_asset_extract<T: RenderAsset>(&mut self) -> &mut Self;
+pub struct MeshBundle<V: MeshVertex> {
+    pub mesh: Handle<Mesh<V>>,  // Mesh<V>: RenderAsset => GpuMesh
+    pub texture: Handle<Image>, // Image: RenderAsset => GpuTexture: CreateBindGroup => BindGroup
+    pub transform: Transform,
+    pub global_transform: GlobalTransform, // GlobalTransform: DynamicUniform => DynamicUniform::push
+    pub color: Color,                      // Color: DynamicUniform => DynamicUniform::push
+
+                                           // pub pipeline_id: CachedRenderPipelineId,
 }
 
-impl AddAssetExtract for App {
-    fn add_asset_extract<T: RenderAsset>(&mut self) -> &mut Self {
-        self.add_asset::<T>()
-            .init_resource::<ExtractedAssets<T::ExtractedAsset>>()
-            .add_system_to_stage(RenderStage::Extract, extract_render_assets::<T>)
+pub fn render_system(world: &mut World) {
+    world.resource_scope(|world: &mut World, mut render_node: Mut<RenderNode>| {
+        render_node.update(&world);
+    });
+
+    let render_node = world.get_resource::<RenderNode>().unwrap();
+    render_node.run(&world);
+
+    world.resource_scope(|_world: &mut World, mut windows: Mut<PreparedWindows>| {
+        for window in windows.values_mut() {
+            window.surface_texture.take().unwrap().texture.present();
+        }
+    });
+}
+
+#[derive(Resource)]
+pub struct RenderNode {
+    cameras: QueryState<(Entity, Read<Camera>, Read<VisibleEntities>)>,
+    entities: QueryState<(Entity,), (With<Visibility>,)>,
+}
+
+impl FromWorld for RenderNode {
+    fn from_world(world: &mut World) -> Self {
+        Self::new(world)
     }
 }
 
-pub trait AddRenderSystem {
-    fn add_render_system<T: Draw>(&mut self) -> &mut Self;
-}
-
-impl AddRenderSystem for App {
-    fn add_render_system<T: Draw>(&mut self) -> &mut Self {
-        self.add_system_to_stage(RenderStage::Render, render_system::<T>)
-    }
-}
-
-pub struct RenderPlugin<T: RenderAsset<ExtractedAsset = GpuMesh>>(PhantomData<fn() -> T>);
-impl<T: RenderAsset<ExtractedAsset = GpuMesh>> Default for RenderPlugin<T> {
-    fn default() -> Self {
-        Self(PhantomData)
-    }
-}
-impl<T: RenderAsset<ExtractedAsset = GpuMesh>> Plugin for RenderPlugin<T> {
-    fn build(&self, app: &mut App) {
-        app.add_asset_extract::<T>()
-            .add_system_to_stage(RenderStage::Prepare, insert_render_handle::<T>);
-    }
-}
-
-#[derive(Component)]
-pub struct RenderHandle<T: Send + Sync + 'static>(HandleId, PhantomData<fn() -> T>);
-impl<T: Send + Sync + 'static> RenderHandle<T> {
-    pub fn new(id: HandleId) -> Self {
-        Self(id, PhantomData)
-    }
-
-    pub fn id(&self) -> HandleId {
-        self.0
-    }
-}
-
-pub trait Draw: Send + Sync + 'static {
-    fn draw<'a>(
-        &'a self,
-        render_pass: &mut wgpu::RenderPass<'a>,
-        instance_data: Option<&'a InstanceData>,
-    );
-}
-
-pub trait RenderAsset: Asset {
-    type ExtractedAsset: Send + Sync + 'static;
-
-    fn extract(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> Self::ExtractedAsset;
-}
-
-pub struct ExtractedAssets<T>(AssetStore<T>);
-impl<T> Default for ExtractedAssets<T> {
-    fn default() -> Self {
-        Self(AssetStore::default())
-    }
-}
-impl<T> Deref for ExtractedAssets<T> {
-    type Target = AssetStore<T>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-impl<T> DerefMut for ExtractedAssets<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-pub fn extract_render_assets<T: RenderAsset>(
-    device: Res<wgpu::Device>,
-    queue: Res<wgpu::Queue>,
-    mut extracted_assets: ResMut<ExtractedAssets<T::ExtractedAsset>>,
-    assets: Res<Assets<T>>,
-    mut asset_events: EventReader<AssetEvent<T>>,
-) {
-    for event in asset_events.iter() {
-        match event {
-            AssetEvent::Created { handle } | AssetEvent::Modified { handle } => {
-                let handle_id = handle.into();
-                let extracted_asset = assets.get(&handle).unwrap().extract(&device, &queue);
-                extracted_assets.insert(handle_id, extracted_asset);
-            }
-            AssetEvent::Removed { handle } => {
-                let handle_id = handle.into();
-                extracted_assets.remove(&handle_id);
-            }
+impl RenderNode {
+    pub fn new(world: &mut World) -> Self {
+        Self {
+            cameras: world.query(),
+            entities: world.query_filtered(),
         }
     }
-}
 
-pub fn insert_render_handle<T: RenderAsset>(
-    mut commands: Commands,
-    render_entities: Query<(Entity, &Handle<T>), Changed<Handle<T>>>,
-    removed_handles: RemovedComponents<Handle<T>>,
-) {
-    for (entity, handle) in render_entities.iter() {
-        commands
-            .entity(entity)
-            .insert(RenderHandle::<T::ExtractedAsset>::new(handle.id));
-        removed_handles.iter().for_each(|entity| {
-            commands
-                .entity(entity)
-                .remove::<RenderHandle<T::ExtractedAsset>>()
-                .sink()
-        });
+    pub fn update(&mut self, world: &World) {
+        self.cameras.update_archetypes(world);
+        self.entities.update_archetypes(world);
     }
-}
 
-pub fn render_system<T: Draw>(
-    device: Res<wgpu::Device>,
-    queue: Res<wgpu::Queue>,
-    // mut command_buffers: ResMut<CommandBuffers>,
-    // surface_textures: ResMut<SurfaceTextures>,
-    surfaces: Res<Surfaces>,
-    depth_textures: Res<DepthTextures>,
-    pipelines: Res<Store<RenderPipeline>>,
-    bind_groups: Res<Store<wgpu::BindGroup>>,
-    cameras: Res<ExtractedCameras>,
-    extracted_assets: Res<ExtractedAssets<T>>,
-    render_entities: Query<
-        (
-            Entity,
-            &Refer<RenderPipeline>,
-            &RenderCamera,
-            &ExtractedTransform,
-            &RenderHandle<T>,
-            Option<&InstanceData>,
-        ),
-        (With<GlobalTransform>, With<Visible>),
-    >,
-) {
-    for (window_id, SurfaceKit { surface, .. }) in surfaces.iter() {
-        let depth_texture = depth_textures.get(window_id);
+    pub fn run(&self, world: &World) {
+        let render_device = world.get_resource::<RenderDevice>().unwrap();
+        let render_queue = world.get_resource::<RenderQueue>().unwrap();
 
-        let output = match surface.get_current_texture() {
-            Ok(output) => output,
-            // Reconfigure the surface if lost
-            // Err(wgpu::SurfaceError::Lost) => state.resize(state.size),
-            // The system is out of memory, we should probably quit
-            // Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
-            // All other errors (Outdated, Timeout) should be resolved by the next frame
-            Err(e) => {
-                println!("{:?}", e);
-                continue;
+        let gpu_textures = world.get_resource::<RenderAssets<Image>>().unwrap();
+        let windows = world.get_resource::<PreparedWindows>().unwrap();
+
+        let mut command_encoder = render_device.create_command_encoder(&Default::default());
+
+        let render_functions = world.get_resource::<RenderFunctions>().unwrap();
+        let cameras = self.cameras.iter_manual(world);
+
+        let mut camera_windows: HashSet<WindowId> = HashSet::new();
+
+        for (camera_entity, camera, visible_entities) in cameras {
+            if let Some(id) = camera.render_target.get_window() {
+                camera_windows.insert(id);
             }
-        };
 
-        let view = output
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+            let render_target_view = camera.render_target.get_view(&gpu_textures, &windows);
 
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Render Encoder"),
-        });
-
-        {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Render Pass"),
+            let mut render_pass = command_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
+                    view: &render_target_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            // Magenta
+                            r: 1.0,
+                            g: 0.0,
+                            b: 1.0,
+                            a: 1.0,
+                        }),
+                        store: true,
+                    },
+                })],
+                depth_stencil_attachment: None,
+            });
+
+            for entity in visible_entities.iter() {
+                if let Some(render_function_id) = world.get::<RenderFunctionId>(*entity) {
+                    let render = render_functions.get(render_function_id).unwrap();
+                    let _render_result = (render)(camera_entity, *entity, world, &mut render_pass);
+                    // match render_result {
+                    //     RenderResult::Success => info!("RenderResult::Success"),
+                    //     RenderResult::Failure => warn!("RenderResult::Failure"),
+                    // }
+                }
+            }
+        }
+
+        for window in windows
+            .values()
+            .filter(|window| !camera_windows.contains(&window.id))
+        {
+            let surface_data = &window.surface_texture.as_ref().unwrap();
+            let _render_pass = command_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &surface_data.view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                         store: true,
                     },
                 })],
-                depth_stencil_attachment: depth_texture.map(|dt| {
-                    wgpu::RenderPassDepthStencilAttachment {
-                        view: &dt.0.view,
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(1.0),
-                            store: true,
-                        }),
-                        stencil_ops: None,
-                    }
-                }),
+                depth_stencil_attachment: None,
             });
+        }
 
-            for (
-                entity,
-                refer_pipeline,
-                camera,
-                extracted_transform,
-                draw_asset_handle,
-                instance_data,
-            ) in render_entities.iter()
-            {
-                let extracted_camera = cameras.get(&camera.get()).unwrap();
-                // let extracted_camera = match extracted_camera {
-                //     Some(c) => c,
-                //     None => continue,
-                // };
-
-                if extracted_camera.render_window != *window_id {
-                    continue;
-                }
-
-                let pipeline = pipelines.get(**refer_pipeline).unwrap();
-                // let pipeline = match pipeline {
-                //     Some(p) => p,
-                //     None => continue,
-                // };
-
-                let bind_groups = [
-                    bind_groups.get(*extracted_camera.bind_refer).unwrap(),
-                    bind_groups.get(*extracted_transform.bind_refer).unwrap(),
-                ];
-
-                if let Some(render_asset_entity) =
-                    extracted_assets.get(&draw_asset_handle.id().into())
-                {
-                    draw_gpu_mesh(
-                        &mut render_pass,
-                        pipeline,
-                        &bind_groups,
-                        render_asset_entity,
-                        instance_data,
-                    );
-                }
-            }
-        } // drop(render_pass) <- mut borrow encoder
-
-        queue.submit(std::iter::once(encoder.finish()));
-        output.present();
+        render_queue.submit([command_encoder.finish()]);
     }
 }
 
-fn draw_gpu_mesh<'a, T: Draw>(
-    render_pass: &mut wgpu::RenderPass<'a>,
-    pipeline: &'a RenderPipeline,
-    bind_groups: &[&'a wgpu::BindGroup],
-    render_entity: &'a T,
-    instance_data: Option<&'a InstanceData>,
-) {
-    render_pass.set_pipeline(&pipeline.inner);
-
-    // TODO: binds are bound in the same order as they appear in RefMany
-    for (index, bind_group) in bind_groups.iter().enumerate() {
-        render_pass.set_bind_group(index as u32, bind_group, &[]);
-    }
-
-    render_entity.draw(render_pass, instance_data);
+pub trait AddRenderFunction {
+    fn add_render_function(&mut self, id: usize, render: RenderFunction) -> &mut Self;
 }
-
-#[derive(Component)]
-pub struct BindRegistry {
-    pub map: HashMap<Location, wgpu::BindGroup>,
-    pub cache: HashMap<TypeId, Location>,
-}
-
-pub fn extract_bind_system<T>(
-    device: Res<wgpu::Device>,
-    mut query: Query<(&T, &<T as InnerBindingSet>::InnerDesc, &mut BindRegistry), Added<T>>,
-    // removed: RemovedComponents<T>,
-) where
-    T: Component + InnerBindingSet + LocationBound,
-    <T as InnerBindingSet>::InnerDesc: Component,
-{
-    for (bind, desc, mut registry) in query.iter_mut() {
-        let bind_group = bind.extract_bind_group(&device, desc);
-        registry.map.insert(bind.get_location(), bind_group);
+impl AddRenderFunction for App {
+    fn add_render_function(&mut self, id: usize, render: RenderFunction) -> &mut Self {
+        self.world
+            .get_resource_mut::<RenderFunctions>()
+            .unwrap()
+            .add(RenderFunctionId(id), render);
+        self
     }
 }
 
-pub fn into_bind_system<T>(
-    device: Res<wgpu::Device>,
-    mut query: Query<(&T, &<T as BindingSet>::SetDesc, &mut BindRegistry), Added<T>>,
-    // removed: RemovedComponents<T>,
-) where
-    T: Component + BindingSet + LocationBound,
-    <T as BindingSet>::SetDesc: Component,
-{
-    for (bind, desc, mut registry) in query.iter_mut() {
-        let bind_group = bind.into_bind_group(&device, desc);
-        registry.map.insert(bind.get_location(), bind_group);
+pub enum RenderResult {
+    Success,
+    Failure,
+}
+
+pub type RenderFunction = for<'w> fn(
+    /*camera*/ Entity,
+    /*object*/ Entity,
+    &'w World,
+    &mut wgpu::RenderPass<'w>,
+) -> RenderResult;
+
+// TODO: entity has to register a RenderFunctionId
+//       how does it find the id
+#[derive(Component, Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct RenderFunctionId(usize);
+
+impl From<usize> for RenderFunctionId {
+    fn from(value: usize) -> Self {
+        RenderFunctionId(value)
     }
 }
 
-pub trait BindStruct {
-    type Fetch: SystemParam;
-
-    fn set_binds(render_pass: &mut wgpu::RenderPass, fetch: &mut SystemParamItem<Self::Fetch>);
+#[derive(Resource)]
+pub struct RenderFunctions {
+    id_to_ind: HashMap<RenderFunctionId, usize>,
+    functions: Vec<RenderFunction>,
 }
 
-pub struct MVPBindStruct {
-    camera: RenderCamera,
-    model: GlobalTransform,
-}
-impl BindStruct for MVPBindStruct {
-    type Fetch = (
-        SQuery<(Read<RenderCamera>, Read<GlobalTransform>)>,
-    );
-
-    fn set_binds(render_pass: &mut wgpu::RenderPass, (query,): &mut SystemParamItem<Self::Fetch>) {
-        todo!()
+impl Default for RenderFunctions {
+    fn default() -> Self {
+        Self {
+            id_to_ind: HashMap::new(),
+            functions: Vec::new(),
+        }
     }
 }
 
-fn get_render_pass() -> &'static mut wgpu::RenderPass<'static> {
-    todo!()
-}
-fn bind_struct_system<T: BindStruct>(
-    fetch: StaticSystemParam<<T as BindStruct>::Fetch>,
-) {
-    let mut fetch = fetch.into_inner();
-    T::set_binds(get_render_pass(), &mut fetch);
+impl RenderFunctions {
+    pub fn add(&mut self, id: RenderFunctionId, render: RenderFunction) {
+        if self.id_to_ind.contains_key(&id) {
+            panic!("Attempted adding multiple render functions with the same id");
+        }
+        self.functions.push(render);
+        self.id_to_ind.insert(id, self.functions.len() - 1);
+    }
+
+    pub fn get(&self, index: &RenderFunctionId) -> Option<&RenderFunction> {
+        self.functions.get(*self.id_to_ind.get(index)?)
+    }
 }
 
-fn test() {
-    let mut app = App::new();
-    app.add_system(bind_struct_system::<MVPBindStruct>);
+fn unimpl_create<T>() -> T {
+    unimplemented!()
+}
+fn unimpl_from_world<'w, T>(_world: &'w World) -> &'w T {
+    unimplemented!()
+}
+
+pub fn render_note(world: &World) {
+    let window = unimpl_create::<Window>();
+
+    let instance = world.get_resource::<RenderInstance>().unwrap();
+    let device = world.get_resource::<RenderDevice>().unwrap();
+    let queue = world.get_resource::<RenderQueue>().unwrap();
+
+    let surface = unsafe { instance.create_surface(&window) };
+    let surface_texture = surface.get_current_texture().unwrap();
+    let surface_view = surface_texture
+        .texture
+        .create_view(&wgpu::TextureViewDescriptor::default());
+
+    let mut command_encoder = device.create_command_encoder(&Default::default());
+    let mut render_pass = command_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: None,
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view: &surface_view,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                store: true,
+            },
+        })],
+        depth_stencil_attachment: None,
+    });
+
+    // DO WORK WITH THE RENDER PASS
+    let render_functions = unimpl_from_world::<Vec<RenderFunction>>(&world);
+    for render_function in render_functions.iter() {
+        (render_function)(
+            Entity::from_raw(1),
+            Entity::from_raw(1),
+            &world,
+            &mut render_pass,
+        );
+    }
+    // ============================
+    drop(render_pass);
+
+    queue.submit([command_encoder.finish()]);
+    surface_texture.present();
 }
