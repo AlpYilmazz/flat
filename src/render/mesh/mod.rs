@@ -11,6 +11,12 @@ pub struct Model<V: MeshVertex> {
     pub meshes: Vec<Mesh<V>>,
 }
 
+pub struct MeshRaw<V> {
+    pub primitive_topology: wgpu::PrimitiveTopology,
+    pub vertices: Vec<V>,
+    pub indices: Option<Indices>,
+}
+
 #[derive(TypeUuid)]
 #[uuid = "8628FE7C-A4E9-4056-91BD-FD6AA7817E39"]
 pub struct Mesh<V: MeshVertex> {
@@ -37,6 +43,14 @@ impl<V: MeshVertex> Mesh<V> {
             primitive_topology,
             vertices,
             indices,
+        }
+    }
+
+    pub fn consume(self) -> MeshRaw<V> {
+        MeshRaw {
+            primitive_topology: self.primitive_topology,
+            vertices: self.vertices,
+            indices: self.indices,
         }
     }
 
@@ -220,16 +234,16 @@ impl GpuMesh {
 impl<V: MeshVertex> RenderAsset for Mesh<V> {
     type PreparedAsset = GpuMesh;
 
-    fn prepare(&self, render_device: &RenderDevice, _queue: &RenderQueue) -> Self::PreparedAsset {
-        GpuMesh::from_mesh(render_device, self)
+    fn prepare(&self, render_device: &RenderDevice, _queue: &RenderQueue) -> Option<Self::PreparedAsset> {
+        Some(GpuMesh::from_mesh(render_device, self))
     }
 }
 
 impl<V: MeshVertex> RenderAsset for BatchMesh<V> {
     type PreparedAsset = GpuMesh;
 
-    fn prepare(&self, render_device: &RenderDevice, _queue: &RenderQueue) -> Self::PreparedAsset {
-        GpuMesh::from_mesh(render_device, self)
+    fn prepare(&self, render_device: &RenderDevice, _queue: &RenderQueue) -> Option<Self::PreparedAsset> {
+        Some(GpuMesh::from_mesh(render_device, self))
     }
 }
 

@@ -2,12 +2,14 @@ use bevy::{
     asset::{Asset, HandleId},
     prelude::{
         AddAsset, App, AssetEvent, Assets, CoreStage, Deref, DerefMut, EventReader,
-        GlobalTransform, IntoSystemDescriptor, Plugin, Res, ResMut, Resource, StageLabel,
+        GlobalTransform, Handle, IntoSystemDescriptor, Plugin, Res, ResMut, Resource, StageLabel,
         SystemStage,
     },
     utils::HashMap,
     window::Windows,
 };
+
+use crate::util::NewTypePhantom;
 
 use self::{
     camera::FlatCameraPlugin,
@@ -21,7 +23,7 @@ use self::{
         shader::{Shader, ShaderLoader},
     },
     system::{render_system, RenderFunctions, RenderNode},
-    texture::{Image, ImageLoader},
+    texture::{Image, ImageLoader, ImageJustLoader},
     view::window::FlatViewPlugin,
 };
 
@@ -70,6 +72,7 @@ impl Plugin for FlatRenderPlugin {
             .init_resource::<PipelineCache>()
             .init_asset_loader::<ShaderLoader>()
             .init_asset_loader::<ImageLoader>()
+            .init_asset_loader::<ImageJustLoader>()
             // .init_asset_loader::<MeshLoader>()
             .add_asset::<Shader>()
             .add_render_asset::<Image>()
@@ -92,7 +95,7 @@ impl Plugin for FlatRenderPlugin {
 pub fn create_wgpu_resources(app: &mut App) {
     let backends = wgpu::Backends::all();
     let power_preference = wgpu::PowerPreference::HighPerformance;
-    let features = wgpu::Features::empty();
+    let features = wgpu::Features::empty() | wgpu::Features::TEXTURE_BINDING_ARRAY;
     let limits = if cfg!(target_arch = "wasm32") {
         wgpu::Limits::downlevel_webgl2_defaults()
     } else {
@@ -148,7 +151,14 @@ impl AddRenderAsset for App {
 pub trait RenderAsset: Asset {
     type PreparedAsset: Send + Sync + 'static;
 
-    fn prepare(&self, render_device: &RenderDevice, queue: &RenderQueue) -> Self::PreparedAsset;
+    fn should_prepare(&self) -> bool {
+        true
+    }
+    fn prepare(
+        &self,
+        render_device: &RenderDevice,
+        queue: &RenderQueue,
+    ) -> Option<Self::PreparedAsset>;
 }
 
 #[derive(Resource, Deref, DerefMut)]
@@ -160,19 +170,47 @@ impl<T: RenderAsset> Default for RenderAssets<T> {
     }
 }
 
+pub type TryNextFrame<T> = NewTypePhantom<Vec<HandleId>, T>;
+
 pub fn prepare_render_assets<T: RenderAsset>(
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     assets: Res<Assets<T>>,
+    mut try_assets: ResMut<TryNextFrame<T>>, // NOTE: Infinite growth
     mut render_assets: ResMut<RenderAssets<T>>,
     mut asset_events: EventReader<AssetEvent<T>>,
 ) {
+    let try_assets_take = std::mem::replace(&mut try_assets.0, Vec::new());
+    for handle_id in try_assets_take {
+        if let Some(asset) = assets.get(&Handle::weak(handle_id)) {
+            match asset.prepare(&render_device, &render_queue) {
+                Some(render_asset) => {
+                    render_assets.insert(handle_id, render_asset);
+                }
+                None => {
+                    if asset.should_prepare() {
+                        try_assets.push(handle_id);
+                    }
+                }
+            }
+        }
+    }
+
     for event in asset_events.iter() {
         match event {
             AssetEvent::Created { handle } | AssetEvent::Modified { handle } => {
                 let handle_id = handle.id();
                 if let Some(asset) = assets.get(handle) {
-                    render_assets.insert(handle_id, asset.prepare(&render_device, &render_queue));
+                    match asset.prepare(&render_device, &render_queue) {
+                        Some(render_asset) => {
+                            render_assets.insert(handle_id, render_asset);
+                        }
+                        None => {
+                            if asset.should_prepare() {
+                                try_assets.push(handle_id);
+                            }
+                        }
+                    }
                 }
             }
             AssetEvent::Removed { handle } => {

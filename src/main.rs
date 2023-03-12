@@ -1,14 +1,18 @@
 use bevy::{
     app::AppExit,
-    prelude::{App, AssetServer, Assets, Commands, EventWriter, Input, KeyCode, Res, Transform, Vec3, Component, Query, With}, time::Time,
+    prelude::{
+        App, AssetServer, Assets, Commands, Component, EventWriter, Input, KeyCode, Query, Res,
+        Transform, Vec3, With,
+    },
 };
 use flat::{
+    mesh3d::{bundle::Mesh3DBundle, BASE_CUBE_HANDLE},
     render::{
         camera::component::{CameraBundle, PerspectiveProjection},
         mesh::Mesh,
-        resource::buffer::Vertex,
+        resource::buffer::{Vertex, Vertex3DTex},
     },
-    sprite::{bundle::SpriteBundle, UNIT_SQUARE_HANDLE},
+    sprite::{bundle::SpriteBundle, BASE_QUAD_HANDLE},
     FlatEngineComplete,
 };
 
@@ -25,20 +29,27 @@ fn spawn_sprite(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     meshes: Res<Assets<Mesh<Vertex>>>,
+    meshes3d: Res<Assets<Mesh<Vertex3DTex>>>,
 ) {
-    let unit_square_mesh = meshes.get_handle(UNIT_SQUARE_HANDLE);
+    let base_quad = meshes.get_handle(BASE_QUAD_HANDLE);
     let texture_handle = asset_server.load("happy-tree.png");
     commands.spawn((
         SpriteBundle {
             transform: Transform::from_scale(Vec3::new(10.0, 10.0, 10.0)),
-            mesh: unit_square_mesh,
+            mesh: base_quad,
             texture: texture_handle,
             ..Default::default()
         },
         Player,
     ));
 
-    // TODO: Sprite does not show
+    let base_cube = meshes3d.get_handle(BASE_CUBE_HANDLE);
+    commands.spawn(Mesh3DBundle {
+        transform: Transform::from_scale(Vec3::new(1000.0, 1000.0, 1000.0)),
+        mesh: base_cube,
+        ..Default::default()
+    });
+
     commands.spawn(CameraBundle::<PerspectiveProjection> {
         transform: Transform::from_xyz(0.0, 0.0, 20.0),
         ..Default::default()

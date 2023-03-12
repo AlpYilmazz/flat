@@ -73,43 +73,67 @@ impl<T> Store<T> {
     }
 }
 
-pub struct AssetStore<T>(pub HashMap<HandleId, T>);
-impl<T> Default for AssetStore<T> {
+pub type AssetBound<T> = HashMap<HandleId, T>;
+pub type EntityBound<T> = HashMap<Entity, T>;
+
+#[derive(Resource)]
+pub struct NewTypePhantom<V, T>(pub V, PhantomData<T>);
+impl<V: Default, T> Default for NewTypePhantom<V, T> {
     fn default() -> Self {
-        Self(Default::default())
+        Self(Default::default(), PhantomData)
     }
 }
-impl<T> Deref for AssetStore<T> {
-    type Target = HashMap<HandleId, T>;
+impl<V, T> Deref for NewTypePhantom<V, T> {
+    type Target = V;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
-impl<T> DerefMut for AssetStore<T> {
+impl<V, T> DerefMut for NewTypePhantom<V, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-pub struct EntityStore<T>(pub HashMap<Entity, T>);
-impl<T> Default for EntityStore<T> {
-    fn default() -> Self {
-        Self(Default::default())
-    }
-}
-impl<T> Deref for EntityStore<T> {
-    type Target = HashMap<Entity, T>;
+// #[derive(Resource)]
+// pub struct AssetBound<T>(pub HashMap<HandleId, T>);
+// impl<T> Default for AssetBound<T> {
+//     fn default() -> Self {
+//         Self(Default::default())
+//     }
+// }
+// impl<T> Deref for AssetBound<T> {
+//     type Target = HashMap<HandleId, T>;
 
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-impl<T> DerefMut for EntityStore<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
+//     fn deref(&self) -> &Self::Target {
+//         &self.0
+//     }
+// }
+// impl<T> DerefMut for AssetBound<T> {
+//     fn deref_mut(&mut self) -> &mut Self::Target {
+//         &mut self.0
+//     }
+// }
+
+// pub struct EntityBound<T>(pub HashMap<Entity, T>);
+// impl<T> Default for EntityBound<T> {
+//     fn default() -> Self {
+//         Self(Default::default())
+//     }
+// }
+// impl<T> Deref for EntityBound<T> {
+//     type Target = HashMap<Entity, T>;
+
+//     fn deref(&self) -> &Self::Target {
+//         &self.0
+//     }
+// }
+// impl<T> DerefMut for EntityBound<T> {
+//     fn deref_mut(&mut self) -> &mut Self::Target {
+//         &mut self.0
+//     }
+// }
 
 #[derive(Component)]
 pub struct Refer<T>(usize, PhantomData<fn() -> T>);

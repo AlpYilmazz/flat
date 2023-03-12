@@ -1,30 +1,22 @@
-use bevy::{
-    asset::HandleId,
-    ecs::system::SystemState,
-    prelude::{FromWorld, Res, ResMut, Resource, World, Deref, DerefMut},
-    utils::HashMap,
-};
+use bevy::{prelude::{Resource, FromWorld, Res, World, ResMut}, ecs::system::SystemState};
 use encase::ShaderType;
 
-use crate::{render::{
-    resource::{pipeline::{BindGroupLayout, PipelineCache, RenderPipelineDescriptor, PipelineLayoutDescriptor, VertexState, FragmentState, RenderPipelineId}, shader::Shader, buffer::{Vertex, MeshVertex}, renderer::{RenderDevice, RenderQueue}, component_uniform::{ComponentUniforms, ModelUniform}},
-    texture::{GpuTexture, Image, PixelFormat, RawImage},
-    RenderAssets, camera::component::CameraUniforms,
-}, util::EngineDefault};
+use crate::{render::{resource::{pipeline::{RenderPipelineId, BindGroupLayout, PipelineCache, RenderPipelineDescriptor, PipelineLayoutDescriptor, VertexState, FragmentState}, renderer::{RenderDevice, RenderQueue}, component_uniform::{ModelUniform, ComponentUniforms}, shader::Shader, buffer::{Vertex3DTex, MeshVertex}}, texture::{GpuTexture, RawImage, PixelFormat}, camera::component::CameraUniforms}, util::EngineDefault};
 
-use super::SPRITE_SHADER_HANDLE;
+use super::MESH3D_3TEX_SHADER_HANDLE;
+
 
 #[derive(Resource)]
-pub struct SpritePipeline {
+pub struct Mesh3DPipeline<const ARR_TEX_N: usize> {
     pub pipeline_id: RenderPipelineId,
     pub model_layout: BindGroupLayout,
     pub view_layout: BindGroupLayout,
-    pub texture_layout: BindGroupLayout,
+    pub arr_texture_layout: BindGroupLayout,
     pub dummy_texture: GpuTexture,
-    pub dummy_texture_bind_group: wgpu::BindGroup,
+    pub dummy_arr_texture_bind_group: wgpu::BindGroup,
 }
 
-impl FromWorld for SpritePipeline {
+impl<const ARR_TEX_N: usize> FromWorld for Mesh3DPipeline<ARR_TEX_N> {
     fn from_world(world: &mut World) -> Self {
         let mut state: SystemState<(Res<RenderDevice>, Res<RenderQueue>, ResMut<PipelineCache>)> =
             SystemState::new(world);
@@ -44,7 +36,7 @@ impl FromWorld for SpritePipeline {
                     },
                     count: None,
                 }],
-                label: Some("sprite_model_layout"),
+                label: Some("mesh3d_model_layout"),
             });
 
         let view_layout =
@@ -59,12 +51,12 @@ impl FromWorld for SpritePipeline {
                     },
                     count: None,
                 }],
-                label: Some("sprite_view_layout"),
+                label: Some("mesh3d_view_layout"),
             });
 
-        let texture_layout =
+        let arr_texture_layout =
             render_device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("sprite_texture_layout"),
+                label: Some("mesh3d_arr_texture_layout"),
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
                         binding: 0,
@@ -74,7 +66,7 @@ impl FromWorld for SpritePipeline {
                             view_dimension: wgpu::TextureViewDimension::D2,
                             multisampled: false,
                         },
-                        count: None,
+                        count: std::num::NonZeroU32::new(ARR_TEX_N as u32),
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 1,
@@ -96,14 +88,16 @@ impl FromWorld for SpritePipeline {
             texture
         };
 
-        let dummy_texture_bind_group =
+        let dummy_texture_n: [&wgpu::TextureView; ARR_TEX_N] = std::array::from_fn(|i| &dummy_texture.view);
+
+        let dummy_arr_texture_bind_group =
             render_device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
-                layout: &texture_layout,
+                layout: &arr_texture_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&dummy_texture.view),
+                        resource: wgpu::BindingResource::TextureViewArray(&dummy_texture_n),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
@@ -116,16 +110,16 @@ impl FromWorld for SpritePipeline {
             label: None,
             layout: PipelineLayoutDescriptor {
                 label: None,
-                bind_group_layouts: vec![model_layout.clone(), view_layout.clone(), texture_layout.clone()],
+                bind_group_layouts: vec![model_layout.clone(), view_layout.clone(), arr_texture_layout.clone()],
                 push_constant_ranges: Vec::new(),
             },
             vertex: VertexState {
-                shader: SPRITE_SHADER_HANDLE.typed(),
+                shader: MESH3D_3TEX_SHADER_HANDLE.typed(),
                 entry_point: Shader::VS_ENTRY_DEFAULT,
-                buffers: vec![Vertex::layout()],
+                buffers: vec![Vertex3DTex::layout()],
             },
             fragment: Some(FragmentState {
-                shader: SPRITE_SHADER_HANDLE.typed(),
+                shader: MESH3D_3TEX_SHADER_HANDLE.typed(),
                 entry_point: Shader::FS_ENTRY_DEFAULT,
                 targets: vec![Some(wgpu::ColorTargetState {
                     format: wgpu::TextureFormat::engine_default(),
@@ -151,27 +145,27 @@ impl FromWorld for SpritePipeline {
             multiview: None,
         });
 
-        SpritePipeline {
+        Mesh3DPipeline {
             pipeline_id,
             model_layout,
             view_layout,
-            texture_layout,
+            arr_texture_layout,
             dummy_texture,
-            dummy_texture_bind_group,
+            dummy_arr_texture_bind_group,
         }
     }
 }
 
 #[derive(Default, Resource)]
-pub struct SpriteBindGroups {
+pub struct Mesh3DBindGroups {
     pub model_bind_group: Option<wgpu::BindGroup>,
     pub view_bind_group: Option<wgpu::BindGroup>,
 }
 
-pub fn create_sprite_bind_groups(
-    mut sprite_bind_groups: ResMut<SpriteBindGroups>,
+pub fn create_mesh3d_bind_groups<const N: usize>(
+    mut mesh3d_bind_groups: ResMut<Mesh3DBindGroups>,
     render_device: Res<RenderDevice>,
-    sprite_pipeline: Res<SpritePipeline>,
+    mesh3d_pipeline: Res<Mesh3DPipeline<N>>,
     model_uniforms: Res<ComponentUniforms<ModelUniform>>,
     view_uniforms: Res<ComponentUniforms<CameraUniforms>>,
 ) {
@@ -180,7 +174,7 @@ pub fn create_sprite_bind_groups(
     };
     let model_bind_group = render_device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: None,
-        layout: &sprite_pipeline.model_layout,
+        layout: &mesh3d_pipeline.model_layout,
         entries: &[
             wgpu::BindGroupEntry {
                 binding: 0,
@@ -194,7 +188,7 @@ pub fn create_sprite_bind_groups(
     };
     let view_bind_group = render_device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: None,
-        layout: &sprite_pipeline.view_layout,
+        layout: &mesh3d_pipeline.view_layout,
         entries: &[
             wgpu::BindGroupEntry {
                 binding: 0,
@@ -203,37 +197,6 @@ pub fn create_sprite_bind_groups(
         ],
     });
 
-    sprite_bind_groups.model_bind_group = Some(model_bind_group);
-    sprite_bind_groups.view_bind_group = Some(view_bind_group);
-}
-
-
-#[derive(Resource, Default, Deref, DerefMut)]
-pub struct TextureBindGroups(pub HashMap<HandleId, wgpu::BindGroup>);
-
-pub fn create_texture_bind_groups(
-    render_device: Res<RenderDevice>,
-    sprite_pipeline: Res<SpritePipeline>,
-    mut texture_bind_groups: ResMut<TextureBindGroups>,
-    render_images: Res<RenderAssets<Image>>,
-) {
-    for (handle_id, gpu_image) in render_images.iter() {
-        texture_bind_groups.entry(*handle_id).or_insert_with(|| {
-            render_device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
-                layout: &sprite_pipeline.texture_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        // resource: wgpu::BindingResource::TextureViewArray(),
-                        resource: wgpu::BindingResource::TextureView(&gpu_image.view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&gpu_image.sampler),
-                    },
-                ],
-            })
-        });
-    }
+    mesh3d_bind_groups.model_bind_group = Some(model_bind_group);
+    mesh3d_bind_groups.view_bind_group = Some(view_bind_group);
 }

@@ -7,7 +7,7 @@ use bevy::{
 use crate::{
     render::{
         camera::component::CameraUniforms,
-        mesh::{primitive::create_unit_square, GpuMeshAssembly, Mesh},
+        mesh::{primitive::quad::create_unit_square, GpuMeshAssembly, Mesh},
         resource::{buffer::Vertex, pipeline::PipelineCache, shader::Shader, uniform::DynamicUniformId, component_uniform::ModelUniform},
         system::{AddRenderFunction, RenderResult},
         texture::Image,
@@ -27,7 +27,7 @@ pub mod bundle;
 const SPRITE_SHADER_HANDLE: HandleUntyped =
     HandleUntyped::weak_from_u64(Shader::TYPE_UUID, 45678909876445673);
 
-pub const UNIT_SQUARE_HANDLE: HandleUntyped =
+pub const BASE_QUAD_HANDLE: HandleUntyped =
     HandleUntyped::weak_from_u64(Mesh::<Vertex>::TYPE_UUID, 45678909876445674);
 
 pub struct FlatSpritePlugin;
@@ -40,7 +40,7 @@ impl Plugin for FlatSpritePlugin {
                 .world
                 .get_resource_mut::<Assets<Mesh<Vertex>>>()
                 .unwrap();
-            meshes.set_untracked(UNIT_SQUARE_HANDLE, create_unit_square());
+            meshes.set_untracked(BASE_QUAD_HANDLE, create_unit_square());
         }
 
         app.init_resource::<SpritePipeline>()

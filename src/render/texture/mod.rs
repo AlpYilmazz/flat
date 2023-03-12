@@ -5,9 +5,25 @@ use image::{DynamicImage, GenericImageView};
 
 use super::{RenderAsset, RenderDevice, RenderQueue};
 
+pub mod texture_arr;
+
 #[derive(TypeUuid)]
 #[uuid = "3F897E85-62CE-4B2C-A957-FCF0CCE649FD"]
-pub struct Image(pub DynamicImage);
+pub struct Image {
+    pub img: DynamicImage,
+    pub prepare: bool,
+}
+
+impl Image {
+    pub fn dim(&self) -> ImageDim {
+        let dimensions = self.img.dimensions();
+        ImageDim {
+            width: dimensions.0,
+            heigth: dimensions.1,
+            pixel: PixelFormat::RGBA8, // TODO: extend support
+        }
+    }
+}
 
 #[derive(Default)]
 pub struct ImageLoader;
@@ -19,7 +35,12 @@ impl AssetLoader for ImageLoader {
     ) -> bevy::asset::BoxedFuture<'a, Result<(), Error>> {
         Box::pin(async {
             let img = image::load_from_memory(bytes)?;
-            load_context.set_default_asset(LoadedAsset::new(Image(img)));
+            load_context.set_default_asset(LoadedAsset::new(
+                Image {
+                    img,
+                    prepare: true,
+                }
+            ));
 
             Ok(())
         })
@@ -30,17 +51,48 @@ impl AssetLoader for ImageLoader {
     }
 }
 
-impl RenderAsset for Image {
-    type PreparedAsset = GpuTexture;
+#[derive(Default)]
+pub struct ImageJustLoader;
+impl AssetLoader for ImageJustLoader {
+    fn load<'a>(
+        &'a self,
+        bytes: &'a [u8],
+        load_context: &'a mut bevy::asset::LoadContext,
+    ) -> bevy::asset::BoxedFuture<'a, Result<(), Error>> {
+        Box::pin(async {
+            let img = image::load_from_memory(bytes)?;
+            load_context.set_default_asset(LoadedAsset::new(
+                Image {
+                    img,
+                    prepare: false,
+                }
+            ));
 
-    fn prepare(&self, device: &RenderDevice, queue: &RenderQueue) -> Self::PreparedAsset {
-        let rgba = self.0.to_rgba8();
-        let dim = self.0.dimensions();
-        let raw_img = RawImage::new(&rgba, dim, PixelFormat::RGBA8);
-        GpuTexture::from_raw_image(device, queue, &raw_img, None).unwrap()
+            Ok(())
+        })
+    }
+
+    fn extensions(&self) -> &[&str] {
+        &["just.png", "just.jpg", "just.jpeg"]
     }
 }
 
+impl RenderAsset for Image {
+    type PreparedAsset = GpuTexture;
+
+    fn prepare(&self, device: &RenderDevice, queue: &RenderQueue) -> Option<Self::PreparedAsset> {
+        if !self.prepare {
+            return None;
+        }
+        
+        let rgba = self.img.to_rgba8(); // TODO: extend support
+        let dim = self.img.dimensions();
+        let raw_img = RawImage::new(&rgba, dim, PixelFormat::RGBA8); // TODO: extend support
+        Some(GpuTexture::from_raw_image(device, queue, &raw_img, None).unwrap())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PixelFormat {
     G8,
     RGBA8,
@@ -71,9 +123,28 @@ impl From<&PixelFormat> for wgpu::TextureFormat {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ImageDim {
+    pub width: u32,
+    pub heigth: u32,
+    pub pixel: PixelFormat,
+    // pub px: u32,
+    // pub stride: u32,
+}
+
+impl ImageDim {
+    pub fn bytes_per_row(&self) -> u32 {
+        self.pixel.bytes() * self.width
+    }
+
+    pub fn total_bytes(&self) -> u32 {
+        self.heigth * self.bytes_per_row()
+    }
+}
+
 pub struct RawImage<'a> {
     pub bytes: &'a [u8],
-    pub dim: (u32, u32, u32),
+    pub dim: (u32, u32, u32), // TODO: refactor as ImageDim
     pub pixel_format: PixelFormat,
 }
 
@@ -177,6 +248,87 @@ impl GpuTexture {
             view,
             sampler,
         })
+    }
+
+    pub fn create_texture_array(
+        device: &RenderDevice,
+        queue: &RenderQueue,
+        data: &[u8],
+        dim: ImageDim,
+        count: u32,
+    ) -> Result<Self> {
+        let size = wgpu::Extent3d {
+            width: dim.width,
+            height: dim.heigth,
+            depth_or_array_layers: count,
+        };
+
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: (&dim.pixel).into(), // wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        });
+
+        queue.write_texture(
+            wgpu::ImageCopyTexture {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            data,
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: std::num::NonZeroU32::new(dim.bytes_per_row()),
+                rows_per_image: std::num::NonZeroU32::new(dim.heigth),
+            },
+            size,
+        );
+
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            // label,
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default() // lod_min_clamp,
+                                 // lod_max_clamp,
+                                 // compare,
+                                 // anisotropy_clamp,
+                                 // border_color,
+        });
+
+        Ok(Self {
+            texture,
+            view,
+            sampler,
+        })
+
+        // let a = &[
+        //         wgpu::BindGroupLayoutEntry {
+        //             binding: 0,
+        //             visibility: wgpu::ShaderStages::FRAGMENT,
+        //             ty: wgpu::BindingType::Texture {
+        //                 sample_type: wgpu::TextureSampleType::Float { filterable: true },
+        //                 view_dimension: wgpu::TextureViewDimension::D2Array,
+        //                 multisampled: false,
+        //             },
+        //             count: std::num::NonZeroU32::new(6 /*N as u32*/),
+        //         },
+        //         wgpu::BindGroupLayoutEntry {
+        //             binding: 1,
+        //             visibility: wgpu::ShaderStages::FRAGMENT,
+        //             ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+        //             count: None,
+        //         }
+        //     ];
     }
 
     pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float; // 1.

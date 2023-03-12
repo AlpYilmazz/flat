@@ -4,3 +4,4 @@ pub mod pipeline;
 pub mod renderer;
 pub mod shader;
 pub mod uniform;
+pub mod specialized_pipeline;
