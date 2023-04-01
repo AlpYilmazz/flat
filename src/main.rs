@@ -1,14 +1,20 @@
 use bevy::{
     app::AppExit,
-    prelude::{App, AssetServer, Assets, Commands, EventWriter, Input, KeyCode, Res, Transform, Vec3, Component, Query, With}, time::Time,
+    prelude::{
+        App, AssetServer, Assets, Commands, Component, EventWriter, Input, KeyCode, Query, Res,
+        Transform, Vec3, With, ResMut,
+    },
 };
 use flat::{
+    mesh3d::{bundle::MeshBundle, bind::MeshPipelineKey},
     render::{
         camera::component::{CameraBundle, PerspectiveProjection},
         mesh::Mesh,
-        resource::buffer::Vertex,
+        resource::buffer::{Vertex, VertexTex3},
+        texture::texture_arr::ImageArrayHandle,
     },
-    sprite::{bundle::SpriteBundle, UNIT_SQUARE_HANDLE},
+    shapes::skybox,
+    sprite::{bundle::SpriteBundle, BASE_QUAD_HANDLE},
     FlatEngineComplete,
 };
 
@@ -21,24 +27,39 @@ fn exit_on_esc(key: Res<Input<KeyCode>>, mut app_exit: EventWriter<AppExit>) {
 #[derive(Component)]
 struct Player;
 
-fn spawn_sprite(
+fn spawn_objects(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     meshes: Res<Assets<Mesh<Vertex>>>,
+    mut meshes_tex3: ResMut<Assets<Mesh<VertexTex3>>>,
 ) {
-    let unit_square_mesh = meshes.get_handle(UNIT_SQUARE_HANDLE);
+    let base_quad = meshes.get_handle(BASE_QUAD_HANDLE);
     let texture_handle = asset_server.load("happy-tree.png");
     commands.spawn((
         SpriteBundle {
             transform: Transform::from_scale(Vec3::new(10.0, 10.0, 10.0)),
-            mesh: unit_square_mesh,
+            mesh: base_quad,
             texture: texture_handle,
             ..Default::default()
         },
         Player,
     ));
 
-    // TODO: Sprite does not show
+    let skybox_mesh = meshes_tex3.add(skybox::create_skybox());
+    let skybox_images = skybox::SIDES
+        .iter()
+        .map(|side| asset_server.load(format!("skybox/{side}.just.jpg")))
+        .collect();
+    commands.spawn(MeshBundle {
+        transform: Transform::from_scale(Vec3::new(1000.0, 1000.0, 1000.0)),
+        mesh: skybox_mesh,
+        textures: ImageArrayHandle::with_images(skybox_images),
+        render_key: MeshPipelineKey {
+            texture_count: 6
+        },
+        ..Default::default()
+    });
+
     commands.spawn(CameraBundle::<PerspectiveProjection> {
         transform: Transform::from_xyz(0.0, 0.0, 20.0),
         ..Default::default()
@@ -73,7 +94,7 @@ fn main() {
         // .add_plugin(bevy::core_pipeline::CorePipelinePlugin)
         // .add_plugin(bevy::sprite::SpritePlugin)
         .add_system(exit_on_esc)
-        .add_startup_system(spawn_sprite)
+        .add_startup_system(spawn_objects)
         .add_system(control_player)
         .run();
 }

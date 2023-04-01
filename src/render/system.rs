@@ -6,14 +6,19 @@ use bevy::{
         App, Component, Entity, FromWorld, GlobalTransform, Handle, Mut, QueryState, Resource,
         Transform, With, World,
     },
-    utils::{HashMap, HashSet},
+    utils::HashMap,
     window::WindowId,
 };
 use winit::window::Window;
 
 use super::{
-    camera::component::*, color::Color, mesh::Mesh, resource::buffer::MeshVertex, texture::Image,
-    view::window::PreparedWindows, RenderAssets, RenderDevice, RenderInstance, RenderQueue,
+    camera::component::*,
+    color::Color,
+    mesh::Mesh,
+    resource::buffer::MeshVertex,
+    texture::{DepthTextures, Image},
+    view::window::PreparedWindows,
+    RenderAssets, RenderDevice, RenderInstance, RenderQueue,
 };
 
 pub struct MeshBundle<V: MeshVertex> {
@@ -78,11 +83,13 @@ impl RenderNode {
         let render_functions = world.get_resource::<RenderFunctions>().unwrap();
         let cameras = self.cameras.iter_manual(world);
 
-        let mut camera_windows: HashSet<WindowId> = HashSet::new();
+        let depth_textures = world.get_resource::<DepthTextures>().unwrap();
+
+        let mut camera_windows: Vec<WindowId> = Vec::new();
 
         for (camera_entity, camera, visible_entities) in cameras {
             if let Some(id) = camera.render_target.get_window() {
-                camera_windows.insert(id);
+                camera_windows.push(id);
             }
 
             let render_target_view = camera.render_target.get_view(&gpu_textures, &windows);
@@ -103,7 +110,16 @@ impl RenderNode {
                         store: true,
                     },
                 })],
-                depth_stencil_attachment: None,
+                depth_stencil_attachment: depth_textures.get(&camera.render_target).map(|dt| {
+                    wgpu::RenderPassDepthStencilAttachment {
+                        view: &dt.view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: true,
+                        }),
+                        stencil_ops: None,
+                    }
+                }),
             });
 
             for entity in visible_entities.iter() {
@@ -133,7 +149,7 @@ impl RenderNode {
                         store: true,
                     },
                 })],
-                depth_stencil_attachment: None,
+                depth_stencil_attachment: None, // TODO: Option
             });
         }
 

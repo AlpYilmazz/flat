@@ -2,26 +2,28 @@ use bevy::{
     asset::{Asset, HandleId},
     prelude::{
         AddAsset, App, AssetEvent, Assets, CoreStage, Deref, DerefMut, EventReader,
-        GlobalTransform, IntoSystemDescriptor, Plugin, Res, ResMut, Resource, StageLabel,
+        GlobalTransform, Handle, IntoSystemDescriptor, Plugin, Res, ResMut, Resource, StageLabel,
         SystemStage,
     },
     utils::HashMap,
     window::Windows,
 };
 
+use crate::util::NewTypePhantom;
+
 use self::{
     camera::FlatCameraPlugin,
     color::Color,
     mesh::Mesh,
     resource::{
-        buffer::Vertex,
+        buffer::{Vertex, VertexTex3},
         component_uniform::AddComponentUniform,
         pipeline::{compile_shaders_into_pipelines, PipelineCache},
         renderer::{RenderAdapter, RenderDevice, RenderInstance, RenderQueue},
         shader::{Shader, ShaderLoader},
     },
     system::{render_system, RenderFunctions, RenderNode},
-    texture::{Image, ImageLoader},
+    texture::{Image, ImageLoader, ImageJustLoader, texture_arr::{create_image_arr_from_images, ImageArray}, DepthTextures},
     view::window::FlatViewPlugin,
 };
 
@@ -68,14 +70,19 @@ impl Plugin for FlatRenderPlugin {
         app.init_resource::<RenderFunctions>()
             .init_resource::<RenderNode>()
             .init_resource::<PipelineCache>()
+            .init_resource::<DepthTextures>()
             .init_asset_loader::<ShaderLoader>()
             .init_asset_loader::<ImageLoader>()
+            .init_asset_loader::<ImageJustLoader>()
             // .init_asset_loader::<MeshLoader>()
             .add_asset::<Shader>()
             .add_render_asset::<Image>()
+            .add_render_asset::<ImageArray>()
             .add_render_asset::<Mesh<Vertex>>()
+            .add_render_asset::<Mesh<VertexTex3>>()
             .add_component_uniform::<Color>()
             .add_component_uniform::<GlobalTransform>()
+            .add_system_to_stage(RenderStage::Create, create_image_arr_from_images)
             .add_system_to_stage(RenderStage::Prepare, compile_shaders_into_pipelines);
 
         app.add_plugin(FlatCameraPlugin).add_plugin(FlatViewPlugin);
@@ -92,7 +99,7 @@ impl Plugin for FlatRenderPlugin {
 pub fn create_wgpu_resources(app: &mut App) {
     let backends = wgpu::Backends::all();
     let power_preference = wgpu::PowerPreference::HighPerformance;
-    let features = wgpu::Features::empty();
+    let features = wgpu::Features::empty() | wgpu::Features::TEXTURE_BINDING_ARRAY;
     let limits = if cfg!(target_arch = "wasm32") {
         wgpu::Limits::downlevel_webgl2_defaults()
     } else {
@@ -141,6 +148,7 @@ impl AddRenderAsset for App {
     fn add_render_asset<T: RenderAsset>(&mut self) -> &mut Self {
         self.add_asset::<T>()
             .init_resource::<RenderAssets<T>>()
+            .init_resource::<TryNextFrame<T>>()
             .add_system_to_stage(RenderStage::Prepare, prepare_render_assets::<T>)
     }
 }
@@ -148,7 +156,14 @@ impl AddRenderAsset for App {
 pub trait RenderAsset: Asset {
     type PreparedAsset: Send + Sync + 'static;
 
-    fn prepare(&self, render_device: &RenderDevice, queue: &RenderQueue) -> Self::PreparedAsset;
+    fn should_prepare(&self) -> bool {
+        true
+    }
+    fn prepare(
+        &self,
+        render_device: &RenderDevice,
+        queue: &RenderQueue,
+    ) -> Option<Self::PreparedAsset>;
 }
 
 #[derive(Resource, Deref, DerefMut)]
@@ -160,19 +175,48 @@ impl<T: RenderAsset> Default for RenderAssets<T> {
     }
 }
 
+pub type TryNextFrame<T> = NewTypePhantom<Vec<HandleId>, T>;
+
 pub fn prepare_render_assets<T: RenderAsset>(
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     assets: Res<Assets<T>>,
+    mut try_assets: ResMut<TryNextFrame<T>>, // NOTE: Infinite growth
     mut render_assets: ResMut<RenderAssets<T>>,
     mut asset_events: EventReader<AssetEvent<T>>,
 ) {
+    let try_assets_take = std::mem::replace(&mut try_assets.0, Vec::new());
+    for handle_id in try_assets_take {
+        if let Some(asset) = assets.get(&Handle::weak(handle_id)) {
+            match asset.prepare(&render_device, &render_queue) {
+                Some(render_asset) => {
+                    render_assets.insert(handle_id, render_asset);
+                }
+                None => {
+                    if asset.should_prepare() {
+                        try_assets.push(handle_id);
+                    }
+                }
+            }
+        }
+    }
+
     for event in asset_events.iter() {
+        dbg!(event);
         match event {
             AssetEvent::Created { handle } | AssetEvent::Modified { handle } => {
                 let handle_id = handle.id();
                 if let Some(asset) = assets.get(handle) {
-                    render_assets.insert(handle_id, asset.prepare(&render_device, &render_queue));
+                    match asset.prepare(&render_device, &render_queue) {
+                        Some(render_asset) => {
+                            render_assets.insert(handle_id, render_asset);
+                        }
+                        None => {
+                            if asset.should_prepare() {
+                                try_assets.push(handle_id);
+                            }
+                        }
+                    }
                 }
             }
             AssetEvent::Removed { handle } => {

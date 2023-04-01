@@ -1,11 +1,14 @@
 use bevy::{
-    prelude::{Deref, DerefMut, Res, ResMut, Resource, Plugin},
+    prelude::{Deref, DerefMut, Plugin, Res, ResMut, Resource},
     utils::HashMap,
     window::{RawHandleWrapper, WindowId, Windows},
 };
 
-use crate::render::{RenderAdapter, RenderDevice, RenderInstance, RenderStage};
-
+use crate::render::{
+    camera,
+    texture::{self, DepthTextures},
+    RenderAdapter, RenderDevice, RenderInstance, RenderStage,
+};
 
 pub struct FlatViewPlugin;
 impl Plugin for FlatViewPlugin {
@@ -96,6 +99,7 @@ pub fn configure_surfaces(
     render_device: Res<RenderDevice>,
     mut windows: ResMut<PreparedWindows>,
     mut surfaces: ResMut<WindowSurfaces>,
+    mut depth_textures: ResMut<DepthTextures>,
 ) {
     for window in windows.values_mut() {
         let is_new_surface = !surfaces.contains_key(&window.id);
@@ -131,6 +135,23 @@ pub fn configure_surfaces(
                 view: surface_view,
                 texture: surface_texture,
             });
+
+            // TODO: support RenderTarget::Image
+            // NOTE: creates depth texture for all windows
+            match depth_textures.get_mut(&camera::component::RenderTarget::Window(window.id)) {
+                Some(dt) => {
+                    *dt = texture::DepthTexture::create(&render_device, &config);
+                }
+                None => {
+                    depth_textures.insert(
+                        camera::component::RenderTarget::Window(window.id),
+                        texture::DepthTexture::create(
+                            &render_device,
+                            &config,
+                        ),
+                    );
+                }
+            }
         } else {
             match surface.get_current_texture() {
                 Ok(st) => {
@@ -153,6 +174,13 @@ pub fn configure_surfaces(
                         view: surface_view,
                         texture: surface_texture,
                     });
+
+                    // TODO: support RenderTarget::Image
+                    if let Some(dt) =
+                        depth_textures.get_mut(&camera::component::RenderTarget::Window(window.id))
+                    {
+                        *dt = texture::DepthTexture::create(&render_device, &config);
+                    }
                 }
                 Err(_) => {
                     panic!("Could not get surface texture");
