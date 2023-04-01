@@ -1,9 +1,11 @@
 use anyhow::*;
 use bevy::asset::{AssetLoader, LoadedAsset};
+use bevy::prelude::{Deref, DerefMut, Resource};
 use bevy::reflect::TypeUuid;
+use bevy::utils::HashMap;
 use image::{DynamicImage, GenericImageView};
 
-use super::{RenderAsset, RenderDevice, RenderQueue};
+use super::{camera, RenderAsset, RenderDevice, RenderQueue};
 
 pub mod texture_arr;
 
@@ -35,12 +37,7 @@ impl AssetLoader for ImageLoader {
     ) -> bevy::asset::BoxedFuture<'a, Result<(), Error>> {
         Box::pin(async {
             let img = image::load_from_memory(bytes)?;
-            load_context.set_default_asset(LoadedAsset::new(
-                Image {
-                    img,
-                    prepare: true,
-                }
-            ));
+            load_context.set_default_asset(LoadedAsset::new(Image { img, prepare: true }));
 
             Ok(())
         })
@@ -61,12 +58,10 @@ impl AssetLoader for ImageJustLoader {
     ) -> bevy::asset::BoxedFuture<'a, Result<(), Error>> {
         Box::pin(async {
             let img = image::load_from_memory(bytes)?;
-            load_context.set_default_asset(LoadedAsset::new(
-                Image {
-                    img,
-                    prepare: false,
-                }
-            ));
+            load_context.set_default_asset(LoadedAsset::new(Image {
+                img,
+                prepare: false,
+            }));
 
             Ok(())
         })
@@ -84,7 +79,7 @@ impl RenderAsset for Image {
         if !self.prepare {
             return None;
         }
-        
+
         let rgba = self.img.to_rgba8(); // TODO: extend support
         let dim = self.img.dimensions();
         let raw_img = RawImage::new(&rgba, dim, PixelFormat::RGBA8); // TODO: extend support
@@ -289,7 +284,12 @@ impl GpuTexture {
             size,
         );
 
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let view = texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            base_array_layer: 0,
+            array_layer_count: std::num::NonZeroU32::new(count),
+            ..Default::default()
+        });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             // label,
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -331,12 +331,11 @@ impl GpuTexture {
         //     ];
     }
 
-    pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float; // 1.
-
     pub fn create_depth_texture(
-        device: &RenderDevice,
+        render_device: &RenderDevice,
         config: &wgpu::SurfaceConfiguration,
         label: Option<&str>,
+        depth_format: wgpu::TextureFormat,
     ) -> Self {
         let size = wgpu::Extent3d {
             // 2.
@@ -350,14 +349,14 @@ impl GpuTexture {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: Self::DEPTH_FORMAT,
+            format: depth_format,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT // 3.
                 | wgpu::TextureUsages::TEXTURE_BINDING,
         };
-        let texture = device.create_texture(&desc);
+        let texture = render_device.create_texture(&desc);
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        let sampler = render_device.create_sampler(&wgpu::SamplerDescriptor {
             // 4.
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -378,3 +377,17 @@ impl GpuTexture {
         }
     }
 }
+
+#[derive(Deref)]
+pub struct DepthTexture(pub GpuTexture);
+
+impl DepthTexture {
+    pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float; // 1.
+
+    pub fn create(render_device: &RenderDevice, config: &wgpu::SurfaceConfiguration) -> Self {
+        Self(GpuTexture::create_depth_texture(render_device, config, None, Self::DEPTH_FORMAT))
+    }
+}
+
+#[derive(Resource, Default, Deref, DerefMut)]
+pub struct DepthTextures(pub HashMap<camera::component::RenderTarget, DepthTexture>);

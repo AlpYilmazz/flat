@@ -3,7 +3,7 @@ use crate::render::{
         primitive::{cube::create_unit_cube, FaceDirection},
         Mesh,
     },
-    resource::buffer::Vertex3DTex,
+    resource::buffer::VertexTex3,
 };
 
 pub const SIDES: [&'static str; 6] = [
@@ -45,14 +45,14 @@ const SKYBOX_UVS: &'static [[f32; 3]; 24] = &[
     [1.0, 1.0, 5.0], // 6
 ];
 
-pub fn create_skybox() -> Mesh<Vertex3DTex> {
+pub fn create_skybox() -> Mesh<VertexTex3> {
     let unit_cube = create_unit_cube(FaceDirection::In).consume();
 
     let skybox_vertices = unit_cube
         .vertices
         .into_iter()
         .enumerate()
-        .map(|(i, v)| Vertex3DTex {
+        .map(|(i, v)| VertexTex3 {
             position: v.position,
             uv: SKYBOX_UVS[i],
             color: v.color,

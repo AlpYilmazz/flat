@@ -16,6 +16,7 @@ pub struct CameraBundle<P: Projection> {
     // pub render_layers: RenderLayers,
 }
 
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub enum RenderTarget {
     Image(Handle<Image>),
     Window(WindowId),

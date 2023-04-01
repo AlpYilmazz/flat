@@ -60,10 +60,10 @@ impl ImageArray {
             panic!("Cannot create ImageArray from empty iterator");
         };
         let mut img_array = Self::new(img0.dim());
-        img_array.add(img0.img.as_bytes(), img0.dim());
+        img_array.add(&img0.img.to_rgba8(), img0.dim());
 
         for img in images {
-            img_array.add(img.img.as_bytes(), img.dim());
+            img_array.add(&img.img.to_rgba8(), img.dim());
         }
 
         img_array
@@ -90,13 +90,13 @@ impl RenderAsset for ImageArray {
     }
 }
 
-#[derive(Component)]
-pub struct ImageArrComponent {
+#[derive(Component, Default)]
+pub struct ImageArrayHandle {
     pub image_arr: Option<Handle<ImageArray>>,
     pub images: Vec<Handle<Image>>,
 }
 
-impl ImageArrComponent {
+impl ImageArrayHandle {
     /// NOTE: Can images be empty?
     pub fn with_images(images: Vec<Handle<Image>>) -> Self {
         Self {
@@ -109,7 +109,7 @@ impl ImageArrComponent {
 pub fn create_image_arr_from_images(
     mut image_assets: ResMut<Assets<Image>>,
     mut image_arr_assets: ResMut<Assets<ImageArray>>,
-    mut query: Query<&mut ImageArrComponent>,
+    mut query: Query<&mut ImageArrayHandle>,
 ) {
     for mut image_arr in query.iter_mut() {
         if image_arr.images.is_empty() {
@@ -130,6 +130,7 @@ pub fn create_image_arr_from_images(
 
             image_arr.image_arr = Some(image_arr_assets.add(image_array));
             image_arr.images.clear();
+            println!("ImageArray created");
         }
     }
 }

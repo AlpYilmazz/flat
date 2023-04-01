@@ -3,6 +3,7 @@ use bevy::{
     prelude::{App, Plugin, PluginGroup},
     DefaultPlugins,
 };
+use mesh3d::FlatMeshPlugin;
 use render::FlatRenderPlugin;
 use sprite::FlatSpritePlugin;
 
@@ -96,6 +97,7 @@ pub struct FlatEngineCore;
 impl Plugin for FlatEngineCore {
     fn build(&self, app: &mut App) {
         app.add_plugin(FlatRenderPlugin)
-            .add_plugin(FlatSpritePlugin);
+            .add_plugin(FlatSpritePlugin)
+            .add_plugin(FlatMeshPlugin);
     }
 }

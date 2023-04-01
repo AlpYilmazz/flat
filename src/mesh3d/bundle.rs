@@ -1,33 +1,35 @@
-use bevy::prelude::{Bundle, GlobalTransform, Transform, Handle, Component, Deref, DerefMut};
+use bevy::prelude::{Bundle, GlobalTransform, Handle, Transform};
 
-use crate::render::{mesh::Mesh, resource::buffer::MeshVertex, color::Color, camera::component::Visibility, system::RenderFunctionId, texture::Image};
+use crate::render::{
+    camera::component::Visibility, color::Color, mesh::Mesh, resource::buffer::MeshVertex,
+    system::RenderFunctionId, texture::texture_arr::ImageArrayHandle,
+};
 
-use super::MESH3D_RENDER_FUNCTION;
+use super::{bind::MeshPipelineKey, MESH_RENDER_FUNCTION};
 
 #[derive(Bundle)]
-pub struct Mesh3DBundle<V: MeshVertex> {
+pub struct MeshBundle<V: MeshVertex> {
     pub global_transform: GlobalTransform,
     pub transform: Transform,
     pub mesh: Handle<Mesh<V>>,
-    pub textures: Textures,
+    pub textures: ImageArrayHandle,
     pub color: Color,
     pub visibility: Visibility,
+    pub render_key: MeshPipelineKey,
     pub render_function: RenderFunctionId,
 }
 
-impl<V: MeshVertex> Default for Mesh3DBundle<V> {
+impl<V: MeshVertex> Default for MeshBundle<V> {
     fn default() -> Self {
         Self {
             global_transform: GlobalTransform::default(),
             transform: Transform::default(),
             mesh: Handle::default(),
-            textures: Textures(Vec::new()),
+            textures: ImageArrayHandle::default(),
             color: Color::WHITE,
             visibility: Visibility { visible: true },
-            render_function: MESH3D_RENDER_FUNCTION.into(),
+            render_key: MeshPipelineKey { texture_count: 1 },
+            render_function: MESH_RENDER_FUNCTION.into(),
         }
     }
 }
-
-#[derive(Component, Deref, DerefMut)]
-pub struct Textures(pub Vec<Handle<Image>>);

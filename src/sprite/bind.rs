@@ -8,7 +8,7 @@ use encase::ShaderType;
 
 use crate::{render::{
     resource::{pipeline::{BindGroupLayout, PipelineCache, RenderPipelineDescriptor, PipelineLayoutDescriptor, VertexState, FragmentState, RenderPipelineId}, shader::Shader, buffer::{Vertex, MeshVertex}, renderer::{RenderDevice, RenderQueue}, component_uniform::{ComponentUniforms, ModelUniform}},
-    texture::{GpuTexture, Image, PixelFormat, RawImage},
+    texture::{GpuTexture, Image, PixelFormat, RawImage, self},
     RenderAssets, camera::component::CameraUniforms,
 }, util::EngineDefault};
 
@@ -142,7 +142,13 @@ impl FromWorld for SpritePipeline {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
             },
-            depth_stencil: None,
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: texture::DepthTexture::DEPTH_FORMAT, // wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less, // 1.
+                stencil: wgpu::StencilState::default(),     // 2.
+                bias: wgpu::DepthBiasState::default(),
+            }),
             multisample: wgpu::MultisampleState {
                 count: 1,
                 mask: !0,

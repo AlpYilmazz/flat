@@ -150,13 +150,13 @@ impl FromRawVertex for Vertex {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, TypeUuid, C, Pod, Zeroable)]
 #[uuid = "AA97B177-9383-4934-8543-0F91A7A02836"]
-pub struct Vertex3DTex {
+pub struct VertexTex3 {
     pub position: [f32; 3],
     pub uv: [f32; 3],
     pub color: [f32; 4],
 }
 
-impl MeshVertex for Vertex3DTex {
+impl MeshVertex for VertexTex3 {
     const ATTRIBUTES: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
         0 => Float32x3,
         1 => Float32x3,

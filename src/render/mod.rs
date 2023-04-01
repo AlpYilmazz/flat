@@ -16,14 +16,14 @@ use self::{
     color::Color,
     mesh::Mesh,
     resource::{
-        buffer::Vertex,
+        buffer::{Vertex, VertexTex3},
         component_uniform::AddComponentUniform,
         pipeline::{compile_shaders_into_pipelines, PipelineCache},
         renderer::{RenderAdapter, RenderDevice, RenderInstance, RenderQueue},
         shader::{Shader, ShaderLoader},
     },
     system::{render_system, RenderFunctions, RenderNode},
-    texture::{Image, ImageLoader, ImageJustLoader},
+    texture::{Image, ImageLoader, ImageJustLoader, texture_arr::{create_image_arr_from_images, ImageArray}, DepthTextures},
     view::window::FlatViewPlugin,
 };
 
@@ -70,15 +70,19 @@ impl Plugin for FlatRenderPlugin {
         app.init_resource::<RenderFunctions>()
             .init_resource::<RenderNode>()
             .init_resource::<PipelineCache>()
+            .init_resource::<DepthTextures>()
             .init_asset_loader::<ShaderLoader>()
             .init_asset_loader::<ImageLoader>()
             .init_asset_loader::<ImageJustLoader>()
             // .init_asset_loader::<MeshLoader>()
             .add_asset::<Shader>()
             .add_render_asset::<Image>()
+            .add_render_asset::<ImageArray>()
             .add_render_asset::<Mesh<Vertex>>()
+            .add_render_asset::<Mesh<VertexTex3>>()
             .add_component_uniform::<Color>()
             .add_component_uniform::<GlobalTransform>()
+            .add_system_to_stage(RenderStage::Create, create_image_arr_from_images)
             .add_system_to_stage(RenderStage::Prepare, compile_shaders_into_pipelines);
 
         app.add_plugin(FlatCameraPlugin).add_plugin(FlatViewPlugin);
@@ -144,6 +148,7 @@ impl AddRenderAsset for App {
     fn add_render_asset<T: RenderAsset>(&mut self) -> &mut Self {
         self.add_asset::<T>()
             .init_resource::<RenderAssets<T>>()
+            .init_resource::<TryNextFrame<T>>()
             .add_system_to_stage(RenderStage::Prepare, prepare_render_assets::<T>)
     }
 }
@@ -197,6 +202,7 @@ pub fn prepare_render_assets<T: RenderAsset>(
     }
 
     for event in asset_events.iter() {
+        dbg!(event);
         match event {
             AssetEvent::Created { handle } | AssetEvent::Modified { handle } => {
                 let handle_id = handle.id();

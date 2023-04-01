@@ -2,16 +2,18 @@ use bevy::{
     app::AppExit,
     prelude::{
         App, AssetServer, Assets, Commands, Component, EventWriter, Input, KeyCode, Query, Res,
-        Transform, Vec3, With,
+        Transform, Vec3, With, ResMut,
     },
 };
 use flat::{
-    mesh3d::{bundle::Mesh3DBundle, BASE_CUBE_HANDLE},
+    mesh3d::{bundle::MeshBundle, bind::MeshPipelineKey},
     render::{
         camera::component::{CameraBundle, PerspectiveProjection},
         mesh::Mesh,
-        resource::buffer::{Vertex, Vertex3DTex},
+        resource::buffer::{Vertex, VertexTex3},
+        texture::texture_arr::ImageArrayHandle,
     },
+    shapes::skybox,
     sprite::{bundle::SpriteBundle, BASE_QUAD_HANDLE},
     FlatEngineComplete,
 };
@@ -25,11 +27,11 @@ fn exit_on_esc(key: Res<Input<KeyCode>>, mut app_exit: EventWriter<AppExit>) {
 #[derive(Component)]
 struct Player;
 
-fn spawn_sprite(
+fn spawn_objects(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     meshes: Res<Assets<Mesh<Vertex>>>,
-    meshes3d: Res<Assets<Mesh<Vertex3DTex>>>,
+    mut meshes_tex3: ResMut<Assets<Mesh<VertexTex3>>>,
 ) {
     let base_quad = meshes.get_handle(BASE_QUAD_HANDLE);
     let texture_handle = asset_server.load("happy-tree.png");
@@ -43,10 +45,18 @@ fn spawn_sprite(
         Player,
     ));
 
-    let base_cube = meshes3d.get_handle(BASE_CUBE_HANDLE);
-    commands.spawn(Mesh3DBundle {
+    let skybox_mesh = meshes_tex3.add(skybox::create_skybox());
+    let skybox_images = skybox::SIDES
+        .iter()
+        .map(|side| asset_server.load(format!("skybox/{side}.just.jpg")))
+        .collect();
+    commands.spawn(MeshBundle {
         transform: Transform::from_scale(Vec3::new(1000.0, 1000.0, 1000.0)),
-        mesh: base_cube,
+        mesh: skybox_mesh,
+        textures: ImageArrayHandle::with_images(skybox_images),
+        render_key: MeshPipelineKey {
+            texture_count: 6
+        },
         ..Default::default()
     });
 
@@ -84,7 +94,7 @@ fn main() {
         // .add_plugin(bevy::core_pipeline::CorePipelinePlugin)
         // .add_plugin(bevy::sprite::SpritePlugin)
         .add_system(exit_on_esc)
-        .add_startup_system(spawn_sprite)
+        .add_startup_system(spawn_objects)
         .add_system(control_player)
         .run();
 }
