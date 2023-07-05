@@ -48,17 +48,16 @@ impl RenderTarget {
         &self,
         gpu_textures: &'a RenderAssets<Image>,
         windows: &'a PreparedWindows,
-    ) -> &'a wgpu::TextureView {
+    ) -> Option<&'a wgpu::TextureView> {
         match self {
-            RenderTarget::Image(handle) => &gpu_textures.get(&handle.id()).unwrap().view,
+            RenderTarget::Image(handle) => gpu_textures.get(&handle.id()).map(|t| &t.view),
             RenderTarget::Window(id) => {
-                &windows
+                windows
                     .get(id)
                     .unwrap()
                     .surface_texture
                     .as_ref()
-                    .unwrap()
-                    .view
+                    .map(|s| &s.view)
             }
         }
     }
@@ -168,6 +167,10 @@ pub struct VisibleEntities {
 }
 
 impl VisibleEntities {
+    pub fn count(&self) -> usize {
+        self.entities.len()
+    }
+
     pub fn iter(&self) -> std::slice::Iter<Entity> {
         self.entities.iter()
     }

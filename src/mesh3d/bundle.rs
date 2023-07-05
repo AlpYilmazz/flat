@@ -1,7 +1,7 @@
 use bevy::prelude::{Bundle, GlobalTransform, Handle, Transform};
 
 use crate::render::{
-    camera::component::Visibility, color::Color, mesh::Mesh, resource::buffer::MeshVertex,
+    camera::component::Visibility, uniform::Color, mesh::Mesh, resource::buffer::MeshVertex,
     system::RenderFunctionId, texture::texture_arr::ImageArrayHandle,
 };
 

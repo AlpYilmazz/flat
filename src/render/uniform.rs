@@ -1,7 +1,23 @@
-use bevy::prelude::{Vec4, Component};
+use bevy::prelude::{Component, Vec4};
 use encase::ShaderType;
 
 use super::resource::uniform::HandleGpuUniform;
+
+#[derive(Component, Clone, Copy)]
+pub struct Radius(pub f32);
+
+#[derive(Clone, ShaderType)]
+pub struct RadiusUniform {
+    value: f32,
+}
+
+impl HandleGpuUniform for Radius {
+    type GU = RadiusUniform;
+
+    fn into_uniform(&self) -> Self::GU {
+        RadiusUniform { value: self.0 }
+    }
+}
 
 #[derive(Component, Clone, Copy)]
 pub struct Color(pub f32, pub f32, pub f32, pub f32);

@@ -201,7 +201,7 @@ impl PipelineSpecialize for MeshPipeline {
                 entry_point: Shader::FS_ENTRY_DEFAULT,
                 targets: vec![Some(wgpu::ColorTargetState {
                     format: wgpu::TextureFormat::engine_default(),
-                    blend: Some(wgpu::BlendState::REPLACE),
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
             }),

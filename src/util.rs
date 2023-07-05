@@ -218,19 +218,19 @@ impl<T> PrimaryEntity<T> {
 }
 
 #[derive(SystemParam)]
-pub struct Primary<'w, 's, T: Resource> {
+pub struct Primary<'w, 's, T: 'static> {
     pub inner: Res<'w, PrimaryEntity<T>>,
     #[system_param(ignore)]
     _marker: PhantomData<&'s usize>,
 }
 
-impl<'w, 's, T: Resource> Primary<'w, 's, T> {
+impl<'w, 's, T> Primary<'w, 's, T> {
     pub fn get(&self) -> Entity {
         self.entity
     }
 }
 
-impl<'w, 's, T: Resource> Deref for Primary<'w, 's, T> {
+impl<'w, 's, T> Deref for Primary<'w, 's, T> {
     type Target = Res<'w, PrimaryEntity<T>>;
 
     fn deref(&self) -> &Self::Target {
@@ -238,7 +238,7 @@ impl<'w, 's, T: Resource> Deref for Primary<'w, 's, T> {
     }
 }
 
-impl<'w, 's, T: Resource> AsRef<Entity> for Primary<'w, 's, T> {
+impl<'w, 's, T> AsRef<Entity> for Primary<'w, 's, T> {
     #[inline]
     fn as_ref(&self) -> &Entity {
         &self.entity
@@ -246,38 +246,38 @@ impl<'w, 's, T: Resource> AsRef<Entity> for Primary<'w, 's, T> {
 }
 
 #[derive(SystemParam)]
-pub struct PrimaryMut<'w, 's, T: Resource> {
+pub struct PrimaryMut<'w, 's, T: 'static> {
     pub inner: ResMut<'w, PrimaryEntity<T>>,
     #[system_param(ignore)]
     _marker: PhantomData<&'s usize>,
 }
 
-impl<'w, 's, T: Resource> PrimaryMut<'w, 's, T> {
+impl<'w, 's, T> PrimaryMut<'w, 's, T> {
     pub fn entity(&self) -> Entity {
         self.entity
     }
 }
 
-impl<'w, 's, T: Resource> Deref for PrimaryMut<'w, 's, T> {
+impl<'w, 's, T> Deref for PrimaryMut<'w, 's, T> {
     type Target = ResMut<'w, PrimaryEntity<T>>;
 
     fn deref(&self) -> &Self::Target {
         &self.inner
     }
 }
-impl<'w, 's, T: Resource> DerefMut for PrimaryMut<'w, 's, T> {
+impl<'w, 's, T> DerefMut for PrimaryMut<'w, 's, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner
     }
 }
 
-impl<'w, 's, T: Resource> AsRef<Entity> for PrimaryMut<'w, 's, T> {
+impl<'w, 's, T> AsRef<Entity> for PrimaryMut<'w, 's, T> {
     #[inline]
     fn as_ref(&self) -> &Entity {
         &self.entity
     }
 }
-impl<'w, 's, T: Resource> AsMut<Entity> for PrimaryMut<'w, 's, T> {
+impl<'w, 's, T> AsMut<Entity> for PrimaryMut<'w, 's, T> {
     #[inline]
     fn as_mut(&mut self) -> &mut Entity {
         &mut self.entity

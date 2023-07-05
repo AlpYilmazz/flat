@@ -13,10 +13,10 @@ use winit::window::Window;
 
 use super::{
     camera::component::*,
-    color::Color,
     mesh::Mesh,
     resource::buffer::MeshVertex,
     texture::{DepthTextures, Image},
+    uniform::Color,
     view::window::PreparedWindows,
     RenderAssets, RenderDevice, RenderInstance, RenderQueue,
 };
@@ -41,7 +41,9 @@ pub fn render_system(world: &mut World) {
 
     world.resource_scope(|_world: &mut World, mut windows: Mut<PreparedWindows>| {
         for window in windows.values_mut() {
-            window.surface_texture.take().unwrap().texture.present();
+            if let Some(st) = window.surface_texture.take() {
+                st.texture.present();
+            }
         }
     });
 }
@@ -92,7 +94,10 @@ impl RenderNode {
                 camera_windows.push(id);
             }
 
-            let render_target_view = camera.render_target.get_view(&gpu_textures, &windows);
+            let Some(render_target_view) = camera.render_target.get_view(&gpu_textures, &windows) else {
+                // println!("no render target, camera: {:?}", camera_entity);
+                continue;
+            };
 
             let mut render_pass = command_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
@@ -100,13 +105,14 @@ impl RenderNode {
                     view: &render_target_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            // Magenta
-                            r: 1.0,
-                            g: 0.0,
-                            b: 1.0,
-                            a: 1.0,
-                        }),
+                        // load: wgpu::LoadOp::Clear(wgpu::Color {
+                        //     // Magenta
+                        //     r: 1.0,
+                        //     g: 0.0,
+                        //     b: 1.0,
+                        //     a: 1.0,
+                        // }),
+                        load: wgpu::LoadOp::Load,
                         store: true,
                     },
                 })],
@@ -138,6 +144,7 @@ impl RenderNode {
             .values()
             .filter(|window| !camera_windows.contains(&window.id))
         {
+            println!("no camera: {:?}", window.id);
             let surface_data = &window.surface_texture.as_ref().unwrap();
             let _render_pass = command_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,

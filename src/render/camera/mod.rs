@@ -75,6 +75,10 @@ pub fn visibility_system(
     entities: Query<(Entity, &Visibility, Option<&RenderLayers>)>,
     mut cameras: Query<(Option<&RenderLayers>, &mut VisibleEntities), With<Camera>>,
 ) {
+    for (_, mut visible_entities) in cameras.iter_mut() {
+        visible_entities.clear();
+    }
+    
     for (entity, visibility, entity_layers) in entities.iter() {
         if !visibility.visible { continue; }
         for (camera_layers, mut visible_entities) in cameras.iter_mut() {

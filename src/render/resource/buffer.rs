@@ -117,14 +117,42 @@ pub trait InstanceUnit: Sized + C + Pod + Zeroable {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, TypeUuid, C, Pod, Zeroable)]
+#[uuid = "D952EB9F-7AD2-4B1B-B3CE-386735205990"]
+pub struct VertexBase {
+    pub position: [f32; 3],
+}
+
+impl MeshVertex for VertexBase {
+    const ATTRIBUTES: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
+        0 => Float32x3,
+    ];
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, TypeUuid, C, Pod, Zeroable)]
 #[uuid = "10929DF8-15C5-472B-9398-7158AB89A0A6"]
 pub struct Vertex {
+    pub position: [f32; 3],
+    pub uv: [f32; 2],
+}
+
+impl MeshVertex for Vertex {
+    const ATTRIBUTES: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
+        0 => Float32x3,
+        1 => Float32x2,
+    ];
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, TypeUuid, C, Pod, Zeroable)]
+#[uuid = "1AD2F3EF-87C8-46B4-BD1D-94C174C278EE"]
+pub struct VertexC {
     pub position: [f32; 3],
     pub uv: [f32; 2],
     pub color: [f32; 4],
 }
 
-impl MeshVertex for Vertex {
+impl MeshVertex for VertexC {
     const ATTRIBUTES: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
         0 => Float32x3,
         1 => Float32x2,
@@ -132,7 +160,7 @@ impl MeshVertex for Vertex {
     ];
 }
 
-impl FromRawVertex for Vertex {
+impl FromRawVertex for VertexC {
     fn from_raw(
         position: &[f32; 3],
         texcoord: &[f32; 2],

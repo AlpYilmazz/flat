@@ -114,6 +114,10 @@ pub fn configure_surfaces(
             (surface, format)
         });
 
+        if window.physical_width == 0 || window.physical_height == 0 {
+            continue;
+        }
+
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: format.clone(),
@@ -145,10 +149,7 @@ pub fn configure_surfaces(
                 None => {
                     depth_textures.insert(
                         camera::component::RenderTarget::Window(window.id),
-                        texture::DepthTexture::create(
-                            &render_device,
-                            &config,
-                        ),
+                        texture::DepthTexture::create(&render_device, &config),
                     );
                 }
             }

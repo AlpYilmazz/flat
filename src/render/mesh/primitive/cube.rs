@@ -1,7 +1,7 @@
 use crate::render::{
-    color::Color,
+    uniform::Color,
     mesh::Mesh,
-    resource::buffer::{Indices, Vertex},
+    resource::buffer::{Indices, VertexC},
 };
 
 use super::FaceDirection;
@@ -49,11 +49,11 @@ pub const UNIT_CUBE_UVS: &'static [[f32; 2]; 4] = &[
 pub const UNIT_CUBE_INDICES_OUTFACE: &'static [u16; 6] = &[0, 1, 2, 2, 3, 0];
 pub const UNIT_CUBE_INDICES_INFACE: &'static [u16; 6] = &[0, 2, 1, 2, 0, 3];
 
-pub fn create_unit_cube(facing: FaceDirection) -> Mesh<Vertex> {
+pub fn create_unit_cube(facing: FaceDirection) -> Mesh<VertexC> {
     let vertices = UNIT_CUBE_POSITIONS
         .iter()
         .enumerate()
-        .map(|(i, vp)| Vertex {
+        .map(|(i, vp)| VertexC {
             position: vp.clone(),
             uv: UNIT_CUBE_UVS[i % 4],
             color: Color::WHITE.as_arr(),

@@ -13,10 +13,10 @@ use crate::util::NewTypePhantom;
 
 use self::{
     camera::FlatCameraPlugin,
-    color::Color,
+    uniform::{Color, Radius},
     mesh::Mesh,
     resource::{
-        buffer::{Vertex, VertexTex3},
+        buffer::{VertexC, VertexTex3, Vertex, VertexBase},
         component_uniform::AddComponentUniform,
         pipeline::{compile_shaders_into_pipelines, PipelineCache},
         renderer::{RenderAdapter, RenderDevice, RenderInstance, RenderQueue},
@@ -28,7 +28,7 @@ use self::{
 };
 
 pub mod camera;
-pub mod color;
+pub mod uniform;
 pub mod mesh;
 pub mod resource;
 pub mod system;
@@ -78,8 +78,11 @@ impl Plugin for FlatRenderPlugin {
             .add_asset::<Shader>()
             .add_render_asset::<Image>()
             .add_render_asset::<ImageArray>()
-            .add_render_asset::<Mesh<Vertex>>()
+            .add_render_asset::<Mesh<VertexBase>>() // NOTE: new render type: triangle
+            .add_render_asset::<Mesh<Vertex>>() // NOTE: new render type: circle
+            .add_render_asset::<Mesh<VertexC>>()
             .add_render_asset::<Mesh<VertexTex3>>()
+            .add_component_uniform::<Radius>()
             .add_component_uniform::<Color>()
             .add_component_uniform::<GlobalTransform>()
             .add_system_to_stage(RenderStage::Create, create_image_arr_from_images)
@@ -202,7 +205,7 @@ pub fn prepare_render_assets<T: RenderAsset>(
     }
 
     for event in asset_events.iter() {
-        dbg!(event);
+        // dbg!(event);
         match event {
             AssetEvent::Created { handle } | AssetEvent::Modified { handle } => {
                 let handle_id = handle.id();
